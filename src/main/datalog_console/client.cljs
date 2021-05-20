@@ -4,6 +4,7 @@
             [datalog-console.components.schema :as c.schema]
             [datalog-console.components.entity :as c.entity]
             [datalog-console.components.entities :as c.entities]
+            [datalog-console.components.query :as c.query]
             [datascript.core :as d]
             [goog.object :as gobj]
             [cljs.reader]))
@@ -34,7 +35,8 @@
   (catch js/Error _e nil))
 
 (defn root []
-  (let [loaded-db? (r/atom false)]
+  (let [loaded-db? (r/atom false)
+        view (r/atom :entity)]
     (fn []
       [:div {:class "relative text-xs h-full w-full grid grid-cols-4"}
        [:div {:class "flex flex-col border-r pt-2 overflow-hidden col-span-1 "}
@@ -46,9 +48,16 @@
         [:div {:class "overflow-auto h-full w-full"}
          [c.entities/entities @rconn entity-lookup-ratom]]]
        [:div {:class "flex flex-col overflow-hidden col-span-2"}
-        [:h2 {:class "px-1 text-xl border-b pt-2"} "Entity"]
-        [:div {:class "overflow-auto h-full w-full"}
-         [c.entity/entity @rconn entity-lookup-ratom]]]
+        [:ul {:class "text-xl border-b flex flex-row"}
+         [:li {:class (str (when (= :entity @view) "bg-gray-200 ") "px-2 pt-2")
+               :on-click #(reset! view :entity)} [:h2 "Entity"]]
+         [:li {:class (str (when (= :query @view) "bg-gray-200 ") "pt-2 px-2")
+               :on-click #(reset! view :query)} [:h2 "Query"]]]
+        (if (= :entity @view)
+          [:div {:class "overflow-auto h-full w-full"}
+           [c.entity/entity @rconn entity-lookup-ratom]]
+          [:div {:class "overflow-auto h-full w-full"}
+           [c.query/query @rconn]])]
        [:button
         {:class "absolute top-2 right-1 py-1 px-2 rounded bg-gray-200 border"
          :on-click (fn []
