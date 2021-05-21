@@ -1,7 +1,73 @@
 (ns datalog-console.components.query
   (:require [datascript.core :as d]
             [reagent.core :as r]
-            [cljs.reader]))
+            [cljs.reader]
+            [clojure.set :refer [difference union]]
+            ["@monaco-editor/react" :as Editor]))
+
+
+
+
+(defn create-attr-proposals [in-range conn monaco]
+  (let [db @conn
+        schema-attrs (keys (:schema db))
+        inferred-attrs (difference (set (map second (d/datoms db :eavt))) (set schema-attrs))
+        suggestion-constructor (fn [attrs extra-label]
+                                 (set (map (fn [attr] {:label (str attr)
+                                                        :detail extra-label
+                                                       :insertText (str attr)})
+                                           attrs)))
+        all-attrs (union (suggestion-constructor schema-attrs " - schema attr")
+                          (suggestion-constructor inferred-attrs " - inferred attr"))
+        result (map #(merge % in-range)
+                    (into [{:label ":find"
+                            :insertText ":find"}
+                           {:label ":where"
+                            :insertText ":where"}]
+                          all-attrs))]
+    (clj->js result)))
+
+
+
+
+(defn set-autocomplete [monaco conn]
+  (let [m (.-languages monaco)
+        provider #js {:provideCompletionItems (fn [model position]
+                                                (try (let [word (.getWordUntilPosition model position)
+                                                           word-range {:startLineNumber (.-lineNumber position)
+                                                                       :endLineNumber (.-lineNumber position)
+                                                                       :startColumn (.-startColumn word)
+                                                                       :endColumn (.-endColumn word)}]
+                                                       #js {:suggestions (create-attr-proposals word-range conn m)})
+                                                     (catch js/Error e (js/console.log (.-message e)))))
+                      :provideHover (fn [model position]
+                                      (try (let [word (.getWordUntilPosition model position)
+                                                 word-range {:startLineNumber (.-lineNumber position)
+                                                             :endLineNumber (.-lineNumber position)
+                                                             :startColumn (.-startColumn word)
+                                                             :endColumn (.-endColumn word)}]
+                                             (clj->js {:range word-range
+                                                       :contents [{:value "hey"}]}))
+                                           (catch js/Error e (js/console.log (.-message e)))))}]
+    (m.registerCompletionItemProvider
+     "clojure"
+     provider)))
+
+(defn c-editor []
+  (fn [query-text conn]
+    [:div {:style {:min-width "20rem"
+                   ;:width "50%"
+                   }}
+     [:> Editor/default
+      {:height "10rem"
+       :value "[:find ?e ?a ?v \n :where \n [?e ?a ?v]]"
+       :language "clojure"
+       :theme "vs-dark"
+       :options {:minimap {:enabled false}
+                 :folding false}
+       :onChange #(reset! query-text %)
+       :beforeMount (fn [monaco-instance] (set-autocomplete monaco-instance conn))}]]))
+
 
 
 (defn query []
@@ -10,8 +76,10 @@
         query-error (r/atom nil)]
     (fn [conn]
       [:div {:class "m-4 pb-4"}
+
        [:form {:on-submit (fn [e]
                             (.preventDefault e)
+                            (js/console.log "this is it: " (cljs.reader/read-string @query-text))
                             (try (let [q-result (d/q (cljs.reader/read-string @query-text)
                                                      @conn)]
                                    (reset! query-error nil)
@@ -19,27 +87,29 @@
                                  (catch js/Error e
                                    (reset! query-result nil)
                                    (reset! query-error (goog.object/get e "message")))))}
-        
-        [:div 
-         [:div {:class "flex justify-between mb-2 w-1/2 items-baseline"
+
+        [:div
+         [:div {:class "flex justify-between mb-2  items-baseline" ;w-1/2
                 :style {:min-width "20rem"}}
           [:p {:class "font-bold"} "Query Editor"]
           [:button {:type "submit"
                     :class "ml-1 py-1 px-2 rounded bg-gray-200 border"}
            "Run query"]]]
-        [:textarea
-         {:style {:min-width "20rem"}
-          :class        "border w-1/2 p-2"
-          :placeholder "[:find ?e ?a ?v \n :where \n [?e ?a ?v]]"
-          :rows 3
-          :value        @query-text
-          :on-change    (fn [e]
-                          (reset! query-text (goog.object/getValueByKeys e #js ["target" "value"]))
-                          (js/console.log "this is a change"))}]]
-       [:div {:class "w-1/2"
+
+        [c-editor query-text conn]
+
+        #_[:textarea
+           {:style {:min-width "20rem"}
+            :class        "border w-1/2 p-2"
+            :placeholder "[:find ?e ?a ?v \n :where \n [?e ?a ?v]]"
+            :rows 3
+            :value        @query-text
+            :on-change    (fn [e]
+                            (reset! query-text (goog.object/getValueByKeys e #js ["target" "value"])))}]]
+       [:div {;:class "w-1/2"
               :style {:min-width "20rem"}}
         (when @query-result
-          [:di
+          [:div
            [:span "Query result:"]
            [:div {:class "border p-4 rounded"}
             [:span @query-result]]])
