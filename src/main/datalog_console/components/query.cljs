@@ -6,7 +6,7 @@
             ["@monaco-editor/react" :as Editor]))
 
 
-
+(set! *warn-on-infer* true)
 
 (defn create-attr-proposals [in-range conn monaco]
   (let [db @conn
@@ -32,7 +32,7 @@
 
 (defn set-autocomplete [monaco conn]
   (let [m (.-languages monaco)
-        provider #js {:provideCompletionItems (fn [model position]
+        provider #js {:provideCompletionItems (fn [^js/monaco.editor.ITextModel model position]
                                                 (try (let [word (.getWordUntilPosition model position)
                                                            word-range {:startLineNumber (.-lineNumber position)
                                                                        :endLineNumber (.-lineNumber position)
@@ -40,7 +40,7 @@
                                                                        :endColumn (.-endColumn word)}]
                                                        #js {:suggestions (create-attr-proposals word-range conn m)})
                                                      (catch js/Error e (js/console.log (.-message e)))))
-                      :provideHover (fn [model position]
+                      :provideHover (fn [^js/monaco.editor.ITextModel model position]
                                       (try (let [word (.getWordUntilPosition model position)
                                                  word-range {:startLineNumber (.-lineNumber position)
                                                              :endLineNumber (.-lineNumber position)
