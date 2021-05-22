@@ -54,7 +54,7 @@
      provider)))
 
 (defn c-editor []
-  (fn [query-text conn]
+  (fn [conn !ref]
     [:div {:style {:min-width "20rem"
                    ;:width "50%"
                    }}
@@ -65,22 +65,20 @@
        :theme "vs-dark"
        :options {:minimap {:enabled false}
                  :folding false}
-       :onChange #(reset! query-text %)
+       :onMount (fn [editor _monaco] (reset! !ref editor))
        :beforeMount (fn [monaco-instance] (set-autocomplete monaco-instance conn))}]]))
 
 
 
 (defn query []
-  (let [query-text (r/atom "")
-        query-result (r/atom nil)
-        query-error (r/atom nil)]
+  (let [query-result (r/atom nil)
+        query-error (r/atom nil)
+        !ref (atom nil)]
     (fn [conn]
       [:div {:class "m-4 pb-4"}
-
        [:form {:on-submit (fn [e]
                             (.preventDefault e)
-                            (js/console.log "this is it: " (cljs.reader/read-string @query-text))
-                            (try (let [q-result (d/q (cljs.reader/read-string @query-text)
+                            (try (let [q-result (d/q (cljs.reader/read-string (some-> @!ref .getValue))
                                                      @conn)]
                                    (reset! query-error nil)
                                    (reset! query-result q-result))
@@ -96,7 +94,7 @@
                     :class "ml-1 py-1 px-2 rounded bg-gray-200 border"}
            "Run query"]]]
 
-        [c-editor query-text conn]
+        [c-editor conn !ref]
 
         #_[:textarea
            {:style {:min-width "20rem"}
