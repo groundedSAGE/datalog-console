@@ -68,6 +68,13 @@
        :onMount (fn [editor _monaco] (reset! !ref editor))
        :beforeMount (fn [monaco-instance] (set-autocomplete monaco-instance conn))}]]))
 
+(defn pretty-print-result [result]
+  (if (set? result)
+    (let [sorted-result (sort result)]
+      (for [r sorted-result]
+        [:div
+         [:span (str r)]]))))
+
 
 
 (defn query []
@@ -87,7 +94,7 @@
                                    (reset! query-error (goog.object/get e "message")))))}
 
         [:div
-         [:div {:class "flex justify-between mb-2  items-baseline" ;w-1/2
+         [:div {:class "flex justify-between mb-2 items-baseline" ;w-1/2
                 :style {:min-width "20rem"}}
           [:p {:class "font-bold"} "Query Editor"]
           [:button {:type "submit"
@@ -104,13 +111,14 @@
             :value        @query-text
             :on-change    (fn [e]
                             (reset! query-text (goog.object/getValueByKeys e #js ["target" "value"])))}]]
-       [:div {;:class "w-1/2"
+       [:div {:class "overflow-hidden" ;"w-1/2"
               :style {:min-width "20rem"}}
         (when @query-result
-          [:div
-           [:span "Query result:"]
-           [:div {:class "border p-4 rounded"}
-            [:span @query-result]]])
+          [:div {:class "overflow-auto mt-4"}
+           [:span "Query result: " [:span {:class "text-gray-400"} (count @query-result)]]
+           [:div {:class "border p-4 rounded overflow-auto"
+                  :style {:min-width "max-content"}}
+            (pretty-print-result @query-result)]])
         (when @query-error
           [:div {:class "bg-red-200 p-4 rounded"}
            [:p @query-error]])]])))
