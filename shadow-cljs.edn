@@ -8,6 +8,7 @@
                        :asset-path "/js/workspaces"
                        :compiler-options {:externs ["datascript/externs.js"]}
                        :preloads [] ; optional, list namespaces to be pre loaded
+                       ;; Apparently we might be able to remove the devtools part in here
                        :devtools {:http-root "public"
                                   :http-port 8084
                                   :http-resource-root "."

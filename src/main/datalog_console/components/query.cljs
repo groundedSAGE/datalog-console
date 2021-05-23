@@ -8,6 +8,13 @@
 
 (set! *warn-on-infer* true)
 
+(defn pretty-print-result [result]
+  (if (set? result)
+    (let [sorted-result (sort result)]
+      (for [r sorted-result]
+        [:div
+         [:span (str r)]]))))
+
 (defn create-attr-proposals [in-range conn monaco]
   (let [db @conn
         schema-attrs (keys (:schema db))
@@ -26,9 +33,6 @@
                             :insertText ":where"}]
                           all-attrs))]
     (clj->js result)))
-
-
-
 
 (defn set-autocomplete [monaco conn]
   (let [m (.-languages monaco)
@@ -67,15 +71,6 @@
                  :folding false}
        :onMount (fn [editor _monaco] (reset! !ref editor))
        :beforeMount (fn [monaco-instance] (set-autocomplete monaco-instance conn))}]]))
-
-(defn pretty-print-result [result]
-  (if (set? result)
-    (let [sorted-result (sort result)]
-      (for [r sorted-result]
-        [:div
-         [:span (str r)]]))))
-
-
 
 (defn query []
   (let [query-result (r/atom nil)

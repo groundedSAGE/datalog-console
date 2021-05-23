@@ -7,15 +7,30 @@
             [datalog-console.components.query :as c.query]
             [datascript.core :as d]
             [goog.object :as gobj]
-            [cljs.reader]))
+            [cljs.reader]
+            ["@monaco-editor/loader" :as Monaco-loader]))
 
 
 
 (def rconn (r/atom (d/create-conn {})))
 (def entity-lookup-ratom (r/atom ""))
 
+
+
+
 (try
   (def current-tab-id js/chrome.devtools.inspectedWindow.tabId)
+
+
+  (do
+    (println "config start")
+    
+    (let [url-path (js/chrome.runtime.getURL "lib/monaco-editor/min/vs")]
+      (js/console.log "url path: " url-path)
+      (try (.config Monaco-loader/default #js {:vs url-path #_"lib/monaco-editor/min/vs"})
+           (catch js/Error e (js/console.log "loader failed"))))
+    
+    (println "config end"))
 
   (def create-port #(js/chrome.runtime.connect #js {:name %}))
   (def devtool-port (create-port ":datalog-console.client/devtool-port"))

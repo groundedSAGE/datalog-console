@@ -5,6 +5,13 @@
     <meta charset="UTF-8">
     <link href="css/gen-styles.css" rel="stylesheet">
   </head>
+  <!-- 
+    this is an attempt to copy the same path taken by codext for loading the editor into the extension 
+    https://github.com/bbc/codext/blob/master/src/editor/editor.html#L9
+  -->
+  <script src="lib/monaco-editor/min/vs/loader.js"></script>
+  <script src="lib/heya/require.js"></script>
+ 
   <!-- Removed body element due to a second body appearing in chrome panels -->
     <div id="root" class="preflight font-mono">Loading Datalog Console...</div>
     <script src="js/devtool/main.js"></script>
