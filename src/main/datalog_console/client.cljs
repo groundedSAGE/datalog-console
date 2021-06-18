@@ -10,9 +10,13 @@
             [datascript.core :as d]
             [goog.object :as gobj]
             [clojure.string :as str]
-            [cljs.reader]))
+            [cljs.reader]
+            [reagent.ratom]))
 
-(def rconn (r/atom (d/create-conn {})))
+(def conn (d/create-conn {}))
+(def rconn (r/atom conn))
+(def rerender (r/atom 0))
+(def rrconn (reagent.ratom/reaction #(do @rerender @rconn)))
 (def rerror (r/atom nil))
 (def entity-lookup-ratom (r/atom ""))
 
@@ -36,7 +40,16 @@
                         (reset! rconn (d/conn-from-db remote-message))
 
                         (:datalog-console.client.response/transact! remote-message)
-                        (post-message devtool-port :datalog-console.client/request-whole-database-as-string {})
+                        nil
+                        #_(post-message devtool-port :datalog-console.client/request-whole-database-as-string {})
+
+                        (:datalog-console.client.response/tx-data remote-message)
+                        (do (js/console.log "TX data from remote: " (pr-str (first (:datalog-console.client.response/tx-data remote-message))))
+                            (let [{:keys [e a v tx added]} (first (:datalog-console.client.response/tx-data remote-message))]
+                              (js/console.log e a v tx added)
+                              (d/transact! @rconn [[(if added :db/add :db/retract) e a v]])
+                              (reset! rconn @rconn)
+                              (swap! rerender inc)))
 
                         (:error remote-message)
                         (reset! rerror (:error remote-message)))))) 
@@ -73,11 +86,11 @@
        [:div {:class "flex flex-col border-r pt-2 overflow-hidden col-span-1 "}
         [:h2 {:class "pl-1 text-xl border-b flex center"} "Schema"]
         [:div {:class "overflow-auto h-full w-full"}
-         [c.schema/schema @rconn]]]
+         [c.schema/schema @rrconn]]]
        [:div {:class "flex flex-col border-r overflow-hidden col-span-1 "}
         [:h2 {:class "px-1 text-xl border-b pt-2"} "Entities"]
         [:div {:class "overflow-auto h-full w-full"}
-         [c.entities/entities @rconn entity-lookup-ratom]]]
+         [c.entities/entities @rrconn entity-lookup-ratom]]]
        [tabs rconn entity-lookup-ratom]
        [:button
         {:class "absolute top-2 right-1 py-1 px-2 rounded bg-gray-200 border"

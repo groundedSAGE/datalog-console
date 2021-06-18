@@ -13,6 +13,10 @@
 (defn enable! 
   "Takes a [datascript](https://github.com/tonsky/datascript) database connection atom. Adds message handlers for a remote datalog-console process to communicate with. E.g. the datalog-console browser [extension](https://chrome.google.com/webstore/detail/datalog-console/cfgbajnnabfanfdkhpdhndegpmepnlmb?hl=en)."
   [{:keys [conn]}]
+  (d/listen! conn (fn [x]
+                    (let [tx-data (:tx-data x)]
+                      (js/console.log tx-data)
+                      (.postMessage js/window #js {":datalog-console.remote/remote-message" (pr-str {:datalog-console.client.response/tx-data tx-data})} "*"))))
   (js/document.documentElement.setAttribute "__datalog-console-remote-installed__" true)
   (.addEventListener js/window "message"
                      (fn [event]
