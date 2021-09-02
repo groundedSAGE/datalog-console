@@ -2,6 +2,7 @@
   {:no-doc true}
   (:require [reagent.dom :as rdom]
             [reagent.core :as r]
+            [reagent.ratom]
             [datalog-console.components.schema :as c.schema]
             [datalog-console.components.entity :as c.entity]
             [datalog-console.components.entities :as c.entities]
@@ -18,6 +19,9 @@
 (def r-error (r/atom nil))
 (def entity-lookup-ratom (r/atom ""))
 (def integration-version (r/atom nil))
+(def rerender (r/atom 0))
+(def rrconn (reagent.ratom/reaction #(do @rerender @r-db-conn)))
+(def rerror (r/atom nil))
 
 (try
   (def background-conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.client/devtool-port"})
@@ -25,12 +29,29 @@
                                                   (fn [msg-conn msg]
                                                     (reset! integration-version (:data msg)))
 
+                                                  :datalog-console.client.response/tx-data 
+                                                  (fn [msg-conn msg]
+                                                    (js/console.log "TX data from remote: " (cljs.reader/read-string (:data msg)))
+                                                    (let [{:keys [e a v tx added]} (first (cljs.reader/read-string (:data msg)))]
+                                                      (js/console.log e a v tx added)
+                                                      ;; Listen is for debugging purposes
+                                                      (d/listen! @r-db-conn (fn [x]
+                                                                              (let [tx-data (:tx-data x)]
+                                                                                (js/console.log "transacted this tx data: " x))))
+
+                                                      (d/transact! @r-db-conn [[(if added :db/add :db/retract) e a v]])
+                                                      (let [new-db @r-db-conn]
+                                                        (reset! r-db-conn (d/create-conn {}))
+                                                        (js/setTimeout #(reset! r-db-conn new-db) 100)
+                                                        #_(reset! r-db-conn new-db))))
+
                                                   :datalog-console.remote/db-as-string
                                                   (fn [msg-conn msg] (reset! r-db-conn (d/conn-from-db (cljs.reader/read-string (:data msg)))))
 
                                                   :datalog-console.client.response/transact!
                                                   (fn [msg-conn msg] (if (:success (:data msg))
-                                                                       (msg/send {:conn msg-conn
+                                                                       (js/console.log "successful transaction")
+                                                                       #_(msg/send {:conn msg-conn
                                                                                   :type :datalog-console.client/request-whole-database-as-string})
                                                                        (reset! r-error (:error (:data msg)))))}
                                          :tab-id js/chrome.devtools.inspectedWindow.tabId
@@ -42,6 +63,7 @@
                                                        (.addListener (gobj/get (:to @msg-conn) "onMessage")
                                                                      (fn [msg]
                                                                        (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
+                                                                         (js/console.log "this is the raw-msg: " raw-msg)
                                                                          (cb (cljs.reader/read-string raw-msg))))))}))
 
 
