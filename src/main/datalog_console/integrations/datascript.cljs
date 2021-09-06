@@ -22,6 +22,7 @@
     (let [msg-conn (msg/create-conn {:to js/window
                                      :routes {:datalog-console.client/request-whole-database-as-string
                                               (fn [msg-conn _msg]
+                                                (js/console.log "sending the database as a string with schema of: " (:schema @db-conn))
                                                 (msg/send {:conn msg-conn
                                                            :type :datalog-console.remote/db-as-string
                                                            :data (pr-str @db-conn)}))
