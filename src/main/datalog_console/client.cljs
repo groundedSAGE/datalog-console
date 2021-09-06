@@ -5,6 +5,8 @@
             [reagent.ratom]
             [datalog-console.components.schema :as c.schema]
             [datalog-console.components.entity :as c.entity]
+             [datalog-console.components.entity-hbr :as c.entity-hbr]
+            [datalog-console.components.entities-hbr :as c.entities-hbr]
             [datalog-console.components.entities :as c.entities]
             [datalog-console.components.query :as c.query]
             [datalog-console.components.transact :as c.transact]
@@ -13,15 +15,13 @@
             [clojure.string :as str]
             [datalog-console.lib.messaging :as msg]
             [datalog-console.components.feature-flag :as feature-flag]
+            [homebase.reagent :as hbr]
             [cljs.reader]))
 
-(def r-db-conn (r/atom (d/create-conn {})))
+(def r-db-conn (r/atom nil))
 (def r-error (r/atom nil))
 (def entity-lookup-ratom (r/atom ""))
 (def integration-version (r/atom nil))
-(def rerender (r/atom 0))
-(def rrconn (reagent.ratom/reaction #(do @rerender @r-db-conn)))
-(def rerror (r/atom nil))
 
 (try
   (def background-conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.client/devtool-port"})
@@ -31,28 +31,17 @@
 
                                                   :datalog-console.client.response/tx-data 
                                                   (fn [msg-conn msg]
-                                                    (js/console.log "TX data from remote: " (cljs.reader/read-string (:data msg)))
                                                     (let [{:keys [e a v tx added]} (first (cljs.reader/read-string (:data msg)))]
-                                                      (js/console.log e a v tx added)
-                                                      ;; Listen is for debugging purposes
-                                                      (d/listen! @r-db-conn (fn [x]
-                                                                              (let [tx-data (:tx-data x)]
-                                                                                (js/console.log "transacted this tx data: " x))))
-
-                                                      (d/transact! @r-db-conn [[(if added :db/add :db/retract) e a v]])
-                                                      (let [new-db @r-db-conn]
-                                                        (reset! r-db-conn (d/create-conn {}))
-                                                        (js/setTimeout #(reset! r-db-conn new-db) 100)
-                                                        #_(reset! r-db-conn new-db))))
+                                                      (d/transact! @r-db-conn [[(if added :db/add :db/retract) e a v]])))
 
                                                   :datalog-console.remote/db-as-string
-                                                  (fn [msg-conn msg] (reset! r-db-conn (d/conn-from-db (cljs.reader/read-string (:data msg)))))
+                                                  (fn [msg-conn msg]
+                                                    (when @r-db-conn (hbr/disconnect! @r-db-conn))
+                                                    (reset! r-db-conn (d/conn-from-db (cljs.reader/read-string (:data msg))))
+                                                    (hbr/connect! @r-db-conn))
 
                                                   :datalog-console.client.response/transact!
-                                                  (fn [msg-conn msg] (if (:success (:data msg))
-                                                                       (js/console.log "successful transaction")
-                                                                       #_(msg/send {:conn msg-conn
-                                                                                  :type :datalog-console.client/request-whole-database-as-string})
+                                                  (fn [msg-conn msg] (when (:error (:data msg))
                                                                        (reset! r-error (:error (:data msg)))))}
                                          :tab-id js/chrome.devtools.inspectedWindow.tabId
                                          :send-fn (fn [{:keys [tab-id to msg]}]
@@ -63,7 +52,6 @@
                                                        (.addListener (gobj/get (:to @msg-conn) "onMessage")
                                                                      (fn [msg]
                                                                        (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
-                                                                         (js/console.log "this is the raw-msg: " raw-msg)
                                                                          (cb (cljs.reader/read-string raw-msg))))))}))
 
 
@@ -93,7 +81,7 @@
                   [:h2 tab-name]]))]
        (case @active-tab
          "Entity" [:div {:class "overflow-auto h-full w-full mt-2"}
-                   [c.entity/entity @r-db-conn entity-lookup-ratom]]
+                   [c.entity-hbr/entity @r-db-conn entity-lookup-ratom]]
          "Query"  [:div {:class "overflow-auto h-full w-full mt-2"}
                    [c.query/query @r-db-conn]]
          "Transact" [feature-flag/version-check
@@ -109,13 +97,17 @@
       [:div {:class "relative text-xs h-full w-full grid grid-cols-4"}
        [:div {:class "flex flex-col border-r pt-2 overflow-hidden col-span-1 "}
         [:h2 {:class "pl-1 text-xl border-b flex center"} "Schema"]
-        [:div {:class "overflow-auto h-full w-full"}
-         [c.schema/schema @r-db-conn]]]
+        (when @r-db-conn
+          [:div {:class "overflow-auto h-full w-full"}
+           [c.schema/schema @r-db-conn]])]
+
        [:div {:class "flex flex-col border-r overflow-hidden col-span-1 "}
         [:h2 {:class "px-1 text-xl border-b pt-2"} "Entities"]
-        [:div {:class "overflow-auto h-full w-full"}
-         [c.entities/entities @r-db-conn entity-lookup-ratom]]]
-       [tabs r-db-conn entity-lookup-ratom]
+        (when @r-db-conn
+          [:div {:class "overflow-auto h-full w-full"}
+           [c.entities-hbr/entities @r-db-conn entity-lookup-ratom]])]
+       (when @r-db-conn
+         [tabs r-db-conn entity-lookup-ratom])
        [:button
         {:class "absolute top-2 right-1 py-1 px-2 rounded bg-gray-200 border"
          :on-click (fn []

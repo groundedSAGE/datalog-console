@@ -9,7 +9,6 @@
 (defn transact-from-devtool! [db-conn transact-str]
   (try
     (d/transact db-conn (cljs.reader/read-string transact-str))
-    {:success true}
     (catch js/Error e {:error (goog.object/get e "message")})))
 
 
@@ -30,9 +29,10 @@
                                               :datalog-console.client/transact!
                                               (fn [msg-conn msg]
                                                 (let [transact-result (transact-from-devtool! db-conn (:data msg))]
-                                                  (msg/send {:conn msg-conn
-                                                             :type :datalog-console.client.response/transact!
-                                                             :data transact-result})))
+                                                  (when (:error transact-result)
+                                                    (msg/send {:conn msg-conn
+                                                               :type :datalog-console.client.response/transact!
+                                                               :data transact-result}))))
 
                                               :datalog-console.client/request-integration-version
                                               (fn [msg-conn _msg]
@@ -40,7 +40,6 @@
                                                            :type :datalog-console.remote/version
                                                            :data dc/version}))}
                                      :send-fn (fn [{:keys [to conn msg]}]
-                                                (js/console.log "this is the msg being sent from the integration: " msg)
                                                 (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
                                                                            :conn-id (:id @conn)})))
                                      :receive-fn (fn [cb msg-conn]
@@ -49,7 +48,6 @@
                                                                         (when (and (identical? (.-source event) js/window)
                                                                                    (not= (:id @msg-conn) (gobj/getValueByKeys event "data" "conn-id")))
                                                                           (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
-                                                                            (js/console.log "this is the msg being received in the integration: " raw-msg)
                                                                             (cb (cljs.reader/read-string raw-msg)))))))})]
       (d/listen! db-conn (fn [x]
                            (let [tx-data (:tx-data x)]
