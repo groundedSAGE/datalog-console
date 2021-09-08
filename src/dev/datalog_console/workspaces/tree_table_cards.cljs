@@ -41,7 +41,7 @@
                         :employer/person -1}])
     conn))
 
-(ws/defcard tree-table-card
+#_(ws/defcard tree-table-card
   {::wsm/align {:flex 1}
    ::wsm/node-props {:style {:padding 0}}}
   (ct.react/react-card

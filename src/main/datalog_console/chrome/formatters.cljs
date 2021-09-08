@@ -6,7 +6,7 @@
             [devtools.formatters.templating :refer [render-markup]]
             [devtools.protocols :refer [IFormat]]))
 
-(extend-type de/Entity
+#_(extend-type de/Entity
   IFormat
   (-header [entity]
            (render-markup
@@ -24,6 +24,6 @@
                             (and (set? v) (c.entity/entity? (first v))) #js ["object" #js {"object" v}]
                             :else (pr-str v))]])))))
 
-(defn install! []
+#_(defn install! []
   (devtools/set-pref! :disable-advanced-mode-check true)
   (devtools/install! [:formatters :hints]))

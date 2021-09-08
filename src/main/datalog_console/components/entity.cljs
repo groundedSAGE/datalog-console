@@ -5,7 +5,12 @@
             [cljs.reader]
             [goog.object]
             [clojure.string :as str]
+            [homebase.reagent :as hbr]
             [datalog-console.components.tree-table :as c.tree-table]))
+
+(defn update-pull-result [pull-result]
+  (reduce-kv (fn [m k v]
+               (assoc m k (if (vector? v) (set v) v))) {} @pull-result))
 
 (defn entity? [v]
   (try
@@ -20,31 +25,33 @@
 (defn keyword->reverse-ref [kw]
   (keyword (str (namespace kw) "/_" (name kw))))
 
-(defn ^:export reverse-refs [entity]
-  (->> (d/q '[:find ?ref-attr ?e
-              :in $ ?ref-id [?ref-attr ...]
-              :where [?e ?ref-attr ?ref-id]]
-            (d/entity-db entity)
-            (:db/id entity)
-            (for [[attr props] (:schema (d/entity-db entity))
-                  :when (= :db.type/ref (:db/valueType props))]
-              attr))
-       (group-by first)
-       (reduce-kv (fn [acc k v]
-                    (conj acc [(keyword->reverse-ref  k)
-                               (set (for [[_ eid] v] (d/entity (d/entity-db entity) eid)))]))
-                  [])))
+(defn ^:export reverse-refs [conn pull-result]
+  (let [[query-result] (hbr/q '[:find ?ref-attr ?e
+                                :in $ ?ref-id [?ref-attr ...]
+                                :where [?e ?ref-attr ?ref-id]]
+                              conn
+                              (:db/id pull-result)
+                              (for [[attr props] (:schema @conn)
+                                    :when (= :db.type/ref (:db/valueType props))]
+                                attr))]
+    (reduce-kv (fn [acc k v]
+                 (conj acc [(keyword->reverse-ref  k)
+                            (set (for [[_ eid] v] (let [[pull-result] (hbr/pull conn '[*] eid)]
+                                                    @pull-result)))]))
+               []
+               (group-by first @query-result))))
 
-(defn entity->rows [entity]
+(defn entity->rows [conn pull-result]
   (concat
-   [[:db/id (:db/id entity)]]
-   (sort (seq entity))
-   (sort (reverse-refs entity))))
+   [[:db/id (:db/id pull-result)]]
+   (sort (seq (dissoc pull-result :db/id)))
+   (sort (reverse-refs conn pull-result))))
 
-(defn expand-row [[a v]]
+(defn expand-row [conn [a v]]
   (cond
     (set? v) (map-indexed (fn [i vv] [(str a " " i) vv]) v)
-    (entity? v) (entity->rows v)))
+    (entity? v) (entity->rows conn (let [[pull-result] (hbr/pull conn '[*] (:db/id v))]
+                                     (update-pull-result pull-result)))))
 
 (defn string-cell []
   (let [expanded-text? (r/atom false)]
@@ -52,7 +59,7 @@
       (if (< (count s) 45)
         [:div s]
         [:div {:class (str "cursor-pointer " (if-not @expanded-text? "min-w-max" "w-96"))
-                :on-click #(reset! expanded-text? (not @expanded-text?))}
+               :on-click #(reset! expanded-text? (not @expanded-text?))}
          (if @expanded-text? s (str (subs s 0 45) "..."))]))))
 
 
@@ -62,8 +69,6 @@
     (entity? col) (str (select-keys col [:db/id]))
     (string? col) [string-cell col]
     :else (str col)))
-
-
 
 (defn lookup-form []
   (let [lookup (r/atom "")
@@ -75,7 +80,7 @@
                (fn [e]
                  (.preventDefault e)
                  (try
-                   (d/entity @conn (cljs.reader/read-string @lookup))
+                   (hbr/entity conn (cljs.reader/read-string @lookup))
                    (on-submit @lookup)
                    (reset! lookup "")
                    (reset! input-error nil)
@@ -98,18 +103,21 @@
 
 (defn entity []
   (fn [conn entity-lookup-ratom]
-    (let [entity (d/entity @conn (cljs.reader/read-string @entity-lookup-ratom))]
+    (let [[pull-result] (if-not (empty? @entity-lookup-ratom)
+                          (hbr/pull conn '[*] (cljs.reader/read-string @entity-lookup-ratom))
+                          [false])]
       [:div {:class "flex flex-col w-full pb-5"}
        [lookup-form conn #(reset! entity-lookup-ratom %)]
-       [:div {:class "pt-2"}
-        (when entity
-          [c.tree-table/tree-table
-           {:caption (str "entity " (select-keys entity [:db/id]))
-            :conn conn
-            :head-row ["Attribute", "Value"]
-            :rows (entity->rows entity)
-            :expandable-row? expandable-row?
-            :expand-row expand-row
-            :render-col render-col}])]])))
+       (when pull-result
+         [:div {:class "pt-2"}
+          (when entity
+            [c.tree-table/tree-table
+             {:caption (str "entity " (select-keys @pull-result [:db/id]))
+              :conn conn
+              :head-row ["Attribute", "Value"]
+              :rows (entity->rows conn (update-pull-result pull-result))
+              :expandable-row? expandable-row?
+              :expand-row (partial expand-row conn)
+              :render-col render-col}])])])))
 
 

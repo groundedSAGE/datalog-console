@@ -7,7 +7,7 @@
             [datalog-console.chrome.formatters :as formatters]
             [datalog-console.workspaces.workspace-db-conn :refer [conn]]))
 
-(formatters/install!)
+#_(formatters/install!)
 
 (defn element [name props & children]
   (apply js/React.createElement name (clj->js props) children))

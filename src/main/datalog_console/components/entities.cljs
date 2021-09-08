@@ -2,15 +2,15 @@
   {:no-doc true}
   (:require [datascript.core :as d]
             [cljs.reader]
-            [goog.object]))
+            [goog.object]
+            [homebase.reagent :as hbr]))
 
 
 (defn ^:export entity-agg [db]
-  (->> (d/q '[:find (pull ?e [*])
-             :where [?e _ _]]
-           @db)
-       flatten
-       (group-by :db/id)))
+  (let [[query-result] (hbr/q '[:find (pull ?e [*])
+                                :where [?e _ _]]
+                              db)]
+    (group-by :db/id (flatten @query-result))))
 
 
 (defn entities []
@@ -20,12 +20,16 @@
                                              (str (subs v 0 100) "...")
                                              v)}) %)]
       [:ul {:class "w-full flex flex-col pb-5"}
-       (for [[id] (entity-agg conn)]
-         ^{:key id}
-         [:li
-          {:class "odd:bg-gray-100 cursor-pointer min-w-max"
-           :title (str (into {:db/id id} (d/entity @conn id)))
-           :on-click #(reset! entity-lookup-ratom (str id))}
-          (str (into {:db/id id} (truncate-long-strings (d/entity @conn id))))])])))
+       (doall
+        (for [[id] (entity-agg conn)]
+          (let [[pull-result] (hbr/pull conn '[*] id)
+                updated-pull-result (reduce-kv (fn [m k v]
+                                                 (assoc m k (if (vector? v) (set v) v))) {} @pull-result)]
+            ^{:key id}
+            [:li
+             {:class "odd:bg-gray-100 cursor-pointer min-w-max"
+              :title (str (into {:db/id id} updated-pull-result))
+              :on-click #(reset! entity-lookup-ratom (str id))}
+             (str (into {:db/id id} (truncate-long-strings updated-pull-result)))])))])))
 
 

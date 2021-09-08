@@ -6,7 +6,7 @@
         nano-id/nano-id {:mvn/version "1.0.0"}
         org.clojure/data.xml {:mvn/version "0.0.8"}
         io.homebase/homebase-react {:git/url "https://github.com/homebaseio/homebase-react.git"
-                                    :sha "a102b2531510d9134b5e5f4c68309465b82062af"} #_{:mvn/version "0.1.1"}}
+                                    :sha "370f5b5092c6abd293aee0ea88a600eba2ce33de"} #_{:mvn/version "0.1.1"}}
  
  :aliases {:dev {:extra-deps {nubank/workspaces {:mvn/version "1.0.16"}
                               thheller/shadow-cljs {:mvn/version "2.11.25"}
