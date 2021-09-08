@@ -16,8 +16,8 @@
                   (if (= 0 i)
                     [:td {:title (str col)
                           :style {:padding-left (str (+ 0.25 level) "rem")
-                                  :max-width "16rem"}
-                          :class "pr-1 box-content truncate align-top"}
+                                  :max-width "17rem"}
+                          :class "pr-1 box-content truncate align-top flex flex-row"}
                      (if (expandable-row? row)
                        [:button {:class "pr-1 focus:outline-none"
                                  :on-click #(reset! open? (not @open?))}
