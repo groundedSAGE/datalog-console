@@ -1,0 +1,12 @@
+{
+    "name": "datalog-console-electron",
+    "description": "Electron version of Datalog Console",
+    "main": "main.js",
+    "scripts": {
+      "start": "electron ."
+    },
+    "devDependencies": {
+      "electron": "^14.0.0"
+    }
+  }
+  

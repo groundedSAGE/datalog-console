@@ -26,8 +26,15 @@
                                               :externs ["datascript/externs.js"]}
                            :devtools         {:devtools-url "http://localhost:9610"}
                            :modules          {:main {:entries [datalog-console.chrome.extension.devtool.main]}}}
-          
+
+          :electron-renderer {:target           :browser
+                              :modules          {:main {:entries [datalog-console.electron.main]}}
+                              :devtools         {:devtools-url "http://localhost:9610"}
+                              :compiler-options {:externs ["datascript/externs.js"]}
+                              :output-dir       "shells/electron/js/renderer"
+                              :asset-path       "js/renderer"}
+
           :browser-test {:target :browser-test
                          :test-dir "resources/public/js/test"
-                         :devtools {:http-port 8021 
+                         :devtools {:http-port 8021
                                     :http-root "resources/public/js/test"}}}}
