@@ -1,9 +1,12 @@
 {
     "name": "datalog-console-electron",
     "description": "Electron version of Datalog Console",
-    "main": "main.js",
+    "main": "js/background/main.js",
     "scripts": {
+      "dev": "shadow-cljs watch main renderer",
+      "build": "shadow-cljs compile main renderer",
       "start": "electron ."
+
     },
     "devDependencies": {
       "electron": "^14.0.0"

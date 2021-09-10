@@ -2,7 +2,6 @@
   "name": "datalog-console",
   "version": "0.3.2",
   "description": "Administration UI for Datalog databases.",
-  "main": "index.js",
   "repository": "https://github.com/homebaseio/datalog-console.git",
   "author": "Chris Smothers <chris@homebase.io>",
   "license": "MIT",
@@ -19,14 +18,18 @@
     "build:workspaces": "shadow-cljs release workspaces",
     "build:chrome": "rm shells/chrome/manifest.json ; rm -rf shells/chrome/out ; rm -rf shells/chrome/js ; shadow-cljs release chrome chrome-devtool",
     "build": "yarn build:tailwind ; yarn build:workspaces ; yarn build:chrome",
-    "build:clean": "rm -rf .shadow-cljs; rm -rf node_modules; rm -rf .cpcache; rm -rf .calva; rm -rf shells/chrome/js; rm -rf shells/chrome/out; rm -rf public/js"
+    "build:clean": "rm -rf .shadow-cljs; rm -rf node_modules; rm -rf .cpcache; rm -rf .calva; rm -rf shells/chrome/js; rm -rf shells/chrome/out; rm -rf public/js",
+    "electron-dev": "shadow-cljs watch electron-main electron-renderer",
+    "electron-build": "shadow-cljs compile electron-main electron-renderer",
+    "start": "electron ."
   },
   "devDependencies": {
     "autoprefixer": "^10.2.5",
     "postcss": "^8.2.8",
     "postcss-cli": "^8.3.1",
     "shadow-cljs": "^2.12.4",
-    "tailwindcss": "^2.0.3"
+    "tailwindcss": "^2.0.3",
+    "electron": "^14.0.0"
   },
   "dependencies": {
     "@tailwindcss/line-clamp": "^0.2.0",

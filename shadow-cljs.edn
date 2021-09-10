@@ -27,12 +27,16 @@
                            :devtools         {:devtools-url "http://localhost:9610"}
                            :modules          {:main {:entries [datalog-console.chrome.extension.devtool.main]}}}
 
-          :electron-renderer {:target           :browser
-                              :modules          {:main {:entries [datalog-console.electron.main]}}
-                              :devtools         {:devtools-url "http://localhost:9610"}
-                              :compiler-options {:externs ["datascript/externs.js"]}
-                              :output-dir       "shells/electron/js/renderer"
-                              :asset-path       "js/renderer"}
+          :electron-main {:target :node-script
+                          :main datalog-console.electron.main.core/init
+                          :devtools  {:devtools-url "http://localhost:9610"}
+                          :compiler-options {:optimizations :simple}
+                          :output-to "shells/electron/js/background/main.js"}
+
+          :electron-renderer {:target :browser
+                              :output-dir "shells/electron/js/renderer"
+                              :asset-path "js"
+                              :modules {:renderer {:init-fn datalog-console.electron.renderer.core/start!}}}
 
           :browser-test {:target :browser-test
                          :test-dir "resources/public/js/test"
