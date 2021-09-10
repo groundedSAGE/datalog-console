@@ -29,6 +29,7 @@ pom.xml.asc
 .calva
 .cpcache
 shells/chrome/out
+shells/electron/js
 public/js
 public/css/gen-styles.css
 resources
