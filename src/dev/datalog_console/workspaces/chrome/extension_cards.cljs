@@ -6,7 +6,8 @@
             [datalog-console.workspaces.workspace-db-conn :refer [conn]]
             [datalog-console.integrations.datascript :as integrations]))
 
-(integrations/enable! {:conn conn})
+(integrations/enable! {:conn conn
+                       :disable-write? false})
 
 (defn element [name props & children]
   (apply js/React.createElement name (clj->js props) children))

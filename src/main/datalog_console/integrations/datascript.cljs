@@ -16,48 +16,58 @@
 
 (defn enable!
   "Takes a [datascript](https://github.com/tonsky/datascript) database connection atom. Adds message handlers for a remote datalog-console process to communicate with. E.g. the datalog-console browser [extension](https://chrome.google.com/webstore/detail/datalog-console/cfgbajnnabfanfdkhpdhndegpmepnlmb?hl=en)."
-  [{db-conn :conn}]
-  (try
-    (js/document.documentElement.setAttribute "__datalog-console-remote-installed__" true)
-    (let [msg-conn (msg/create-conn {:to js/window
-                                     :routes {:datalog-console.client/request-whole-database-as-string
-                                              (fn [msg-conn _msg]
-                                                (js/console.log "sending the database as a string: " (pr-str @db-conn))
-                                                (msg/send {:conn msg-conn
-                                                           :type :datalog-console.remote/db-as-string
-                                                           :data (pr-str @db-conn)}))
+  [{:keys [conn disable-write?]}]
+  (let [db-conn conn]
+    (try
+      (js/document.documentElement.setAttribute "__datalog-console-remote-installed__" true)
+      (let [msg-conn (msg/create-conn {:to js/window
+                                       :routes {:datalog-console.client/init!
+                                                (fn [msg-conn _msg]
+                                                  (msg/send {:conn msg-conn
+                                                             :type :datalog-console.remote/init-config
+                                                             :data {:integration-version dc/version
+                                                                    :disable-write? disable-write?}}))
 
-                                              :datalog-console.client/transact!
-                                              (fn [msg-conn msg]
-                                                (let [transact-result (transact-from-devtool! db-conn (:data msg))]
-                                                  (when (:error transact-result)
-                                                    (msg/send {:conn msg-conn
-                                                               :type :datalog-console.client.response/transact!
-                                                               :data transact-result}))))
+                                                :datalog-console.client/request-whole-database-as-string
+                                                (fn [msg-conn _msg]
+                                                  (msg/send {:conn msg-conn
+                                                             :type :datalog-console.remote/db-as-string
+                                                             :data (pr-str @db-conn)}))
 
-                                              :datalog-console.client/request-integration-version
-                                              (fn [msg-conn _msg]
-                                                (msg/send {:conn msg-conn
-                                                           :type :datalog-console.remote/version
-                                                           :data dc/version}))}
-                                     :send-fn (fn [{:keys [to conn msg]}]
-                                                (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
-                                                                           :conn-id (:id @conn)})))
-                                     :receive-fn (fn [cb msg-conn]
-                                                   (.addEventListener (:to @msg-conn) "message"
-                                                                      (fn [event]
-                                                                        (when (and (identical? (.-source event) js/window)
-                                                                                   (not= (:id @msg-conn) (gobj/getValueByKeys event "data" "conn-id")))
-                                                                          (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
-                                                                            (cb (cljs.reader/read-string raw-msg)))))))})]
-      (d/listen! db-conn (fn [x]
-                           (let [tx-data (:tx-data x)]
-                             (msg/send {:conn msg-conn
-                                        :type :datalog-console.client.response/tx-data
-                                        :data (pr-str tx-data)})))))
+                                                :datalog-console.client/transact!
+                                                (fn [msg-conn msg]
+                                                  (when-not disable-write?
+                                                    (let [transact-result (transact-from-devtool! db-conn (:data msg))]
+                                                      (when (:error transact-result)
+                                                        (msg/send {:conn msg-conn
+                                                                   :type :datalog-console.client.response/transact!
+                                                                   :data transact-result})))))
+
+                                                ;; Keep this around for legacy purposes
+                                                :datalog-console.client/request-integration-version
+                                                (fn [msg-conn _msg]
+                                                  (msg/send {:conn msg-conn
+                                                             :type :datalog-console.remote/version
+                                                             :data dc/version}))}
+                                       :send-fn (fn [{:keys [to conn msg]}]
+                                                  (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
+                                                                             :conn-id (:id @conn)})))
+                                       :receive-fn (fn [cb msg-conn]
+                                                     (.addEventListener (:to @msg-conn) "message"
+                                                                        (fn [event]
+                                                                          (when (and (identical? (.-source event) js/window)
+                                                                                     (not= (:id @msg-conn) (gobj/getValueByKeys event "data" "conn-id")))
+                                                                            (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
+                                                                              (js/console.log "this is the raw message: " raw-msg)
+                                                                              (cb (cljs.reader/read-string raw-msg)))))))})]
+        (d/listen! db-conn (fn [x]
+                             (let [tx-data (:tx-data x)]
+                               (msg/send {:conn msg-conn
+                                          :type :datalog-console.client.response/tx-data
+                                          :data (pr-str tx-data)})))))
 
 
-    (catch js/Error _e nil)))
+      (catch js/Error _e nil))))
 
 
 

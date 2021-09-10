@@ -19,16 +19,16 @@
 (def r-db-conn (r/atom nil))
 (def r-error (r/atom nil))
 (def entity-lookup-ratom (r/atom ""))
-(def integration-version (r/atom nil))
+(def remote-config (r/atom {}))
 
 (try
   ;; Inside of a try for cases when there is no browser environment
   (def background-conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.client/devtool-port"})
-                                         :routes {:datalog-console.remote/version
+                                         :routes {:datalog-console.remote/init-config
                                                   (fn [_msg-conn msg]
-                                                    (reset! integration-version (:data msg)))
+                                                    (reset! remote-config (:data msg)))
 
-                                                  :datalog-console.client.response/tx-data 
+                                                  :datalog-console.client.response/tx-data
                                                   (fn [_msg-conn msg]
                                                     (doseq [datom (cljs.reader/read-string (:data msg))]
                                                       (let [{:keys [e a v _tx added]} datom]
@@ -42,7 +42,7 @@
 
                                                   :datalog-console.client.response/transact!
                                                   (fn [_msg-conn msg] (when (:error (:data msg))
-                                                                       (reset! r-error (:error (:data msg)))))}
+                                                                        (reset! r-error (:error (:data msg)))))}
                                          :tab-id js/chrome.devtools.inspectedWindow.tabId
                                          :send-fn (fn [{:keys [tab-id to msg]}]
                                                     (.postMessage to
@@ -54,13 +54,21 @@
                                                                        (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
                                                                          (cb (cljs.reader/read-string raw-msg))))))}))
 
-
   (msg/send {:conn background-conn
              :type :datalog-console.client/init!})
-  (msg/send {:conn background-conn
-             :type :datalog-console.client/request-integration-version})
 
   (catch js/Error _e nil))
+
+
+(defn transaction-permission-check [comp]
+  (if-not (:disable-write? @remote-config)
+    comp
+    [:div {:class "relative h-full"}
+     [:div {:class "opacity-50"} comp]
+     [:div {:class "absolute top-0 w-full h-full bg-gray-500 bg-opacity-80 flex justify-center items-center"}
+      [:div {:class "mx-4 p-4 bg-gray-100 rounded"}
+       [:span {:class "block"}
+        "Transactions are disabled for this database"]]]]))
 
 (defn tabs []
   (let [active-tab (r/atom "Entity")
@@ -88,9 +96,10 @@
                   "Transact" [feature-flag/version-check
                               {:title "Transact"
                                :required-version "0.3.1"
-                               :current-version @integration-version}
-                              [:div {:class "overflow-auto h-full w-full mt-2"}
-                               [c.transact/transact on-tx-submit r-error]]]))])))
+                               :current-version (:integration-version @remote-config)}
+                              (transaction-permission-check
+                               [:div {:class "overflow-auto h-full w-full mt-2"}
+                                [c.transact/transact on-tx-submit r-error]])]))])))
 
 (defn root []
   (let [loaded-db? (r/atom false)]

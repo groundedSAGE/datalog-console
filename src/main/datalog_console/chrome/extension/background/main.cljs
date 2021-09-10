@@ -25,8 +25,10 @@
                        :send-fn (fn [{:keys [to msg]}]
                                   (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)})))
                        :tab-id tab-id
-                       :routes {:datalog-console.client/init! (fn [conn _msg]
-                                                                (swap! port-conns assoc-in [:tools @(:tab-id @conn)] (:to @conn)))
+                       :routes {:datalog-console.client/init! (fn [conn msg]
+                                                                (swap! port-conns assoc-in [:tools @(:tab-id @conn)] (:to @conn))
+                                                                (let [to (get-in @port-conns [:remote @(:tab-id @conn)])]
+                                                                   (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)}))))
                                 :datalog-console.remote/db-detected (fn [conn _msg]
                                                                       (set-icon-and-popup @(:tab-id @conn)))
                                 :* (fn [conn msg]
