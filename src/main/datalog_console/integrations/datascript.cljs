@@ -1,6 +1,8 @@
 (ns datalog-console.integrations.datascript
   (:require [goog.object :as gobj]
             [cljs.reader]
+            ["crypto-js" :as crypto]
+            ["Draggable" :as Draggable]
             [datascript.core :as d]
             [datalog-console.lib.version :as dc]
             [datalog-console.lib.messaging :as msg]))
@@ -11,6 +13,13 @@
     (d/transact db-conn (cljs.reader/read-string transact-str))
     (catch js/Error e {:error (goog.object/get e "message")})))
 
+(defn encrypt [msg secret]
+  (.toString (.encrypt (.-AES crypto) msg secret)))
+
+(defn decrypt [msg secret]
+  (.toString (.decrypt (.-AES crypto) msg secret) (.-Utf8 (.-enc crypto))))
+
+(def confirmation-code (atom nil))
 
 
 
@@ -22,7 +31,8 @@
       (js/document.documentElement.setAttribute "__datalog-console-remote-installed__" true)
       (let [msg-conn (msg/create-conn {:to js/window
                                        :routes {:datalog-console.client/init!
-                                                (fn [msg-conn _msg]
+                                                (fn [msg-conn msg]
+                                                  (reset! confirmation-code (js/prompt "Please enter confirmation code"))
                                                   (msg/send {:conn msg-conn
                                                              :type :datalog-console.remote/init-config
                                                              :data {:integration-version dc/version
@@ -32,7 +42,7 @@
                                                 (fn [msg-conn _msg]
                                                   (msg/send {:conn msg-conn
                                                              :type :datalog-console.remote/db-as-string
-                                                             :data (pr-str @db-conn)}))
+                                                             :data (encrypt (pr-str @db-conn) @confirmation-code)}))
 
                                                 :datalog-console.client/transact!
                                                 (fn [msg-conn msg]
@@ -58,13 +68,13 @@
                                                                           (when (and (identical? (.-source event) js/window)
                                                                                      (not= (:id @msg-conn) (gobj/getValueByKeys event "data" "conn-id")))
                                                                             (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
-                                                                              (js/console.log "this is the raw message: " raw-msg)
+                                                                              ;; (js/console.log "this is the raw message: " raw-msg)
                                                                               (cb (cljs.reader/read-string raw-msg)))))))})]
         (d/listen! db-conn (fn [x]
                              (let [tx-data (:tx-data x)]
                                (msg/send {:conn msg-conn
                                           :type :datalog-console.client.response/tx-data
-                                          :data (pr-str tx-data)})))))
+                                          :data (encrypt (pr-str tx-data) @confirmation-code)})))))
 
 
       (catch js/Error _e nil))))
