@@ -58,6 +58,7 @@
                                                       (when-let [msg-tab-id (gobj/get message "tab-id")]
                                                         (reset! tab-id msg-tab-id))
                                                       (js/console.log "this is the message: " (gobj/get message (str ::msg/msg)))
+                                                      (js/console.log "this is the message: " (:datalog-console.remote/db-detected (js->clj (gobj/get message (str ::msg/msg)))))
                                                       (cb (cljs.reader/read-string (gobj/get message (str ::msg/msg)))))]
                                        (.addListener (gobj/get port "onMessage") listener)
                                        (.addListener (gobj/get port "onDisconnect")

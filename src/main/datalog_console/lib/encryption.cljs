@@ -24,21 +24,30 @@
 (defn decode [data]
   (.decode (js/TextDecoder.) data))
 
-(defn encrypt [{:keys [cb key-type keypair data]}]
+(defn buff-to-base64 [buff]
+  (js/btoa (.apply js/String.fromCharCode nil (js/Uint8Array. buff))))
+
+(defn base64-to-buff [buff]
+  (.from js/Uint8Array.
+         (js/atob (js/btoa (.apply js/String.fromCharCode nil (js/Uint8Array. buff))))
+         (fn [c] (.charCodeAt c nil))))
+
+(defn encrypt [{:keys [key-type keypair data]} cb]
     ;; might want to do encoding outside of this function
   (when @keypair
     (-> (.encrypt js/crypto.subtle
                   #js {:name "RSA-OAEP"} (key-type @keypair) (encode data))
         (.then (fn [s]
-                 (cb s)))
+                 (cb (buff-to-base64 s))))
         (.catch #(js/console.log %)))))
 
-(defn decrypt [{:keys [cb key-type keypair data]}]
+(defn decrypt [{:keys [key-type keypair data]} cb]
   ;; might want to do decoding outside of this function
   (when @keypair
     (-> (.decrypt js/crypto.subtle
-                  #js {:name "RSA-OAEP"} (key-type @keypair) data)
+                  #js {:name "RSA-OAEP"} (key-type @keypair) (base64-to-buff data))
         (.then (fn [s]
+                 (js/console.log)
                  (cb (decode s))))
         (.catch #(js/console.log %)))))
 

@@ -1,7 +1,6 @@
 (ns datalog-console.integrations.datascript
   (:require [goog.object :as gobj]
             [cljs.reader]
-            [cljs-bean.core :refer [bean ->clj ->js]]
             [datascript.core :as d]
             [datalog-console.lib.version :as dc]
             [datalog-console.lib.encryption :as crypto]
@@ -36,12 +35,25 @@
 
                                                 :datalog-console.client/request-whole-database-as-string
                                                 (fn [msg-conn _msg]
-                                                  (crypto/encrypt {:cb #(do (js/console.log (pr-str %))#_(msg/send {:conn msg-conn
-                                                                                       :type :datalog-console.remote/db-as-string
-                                                                                       :data %}))
-                                                                   :key-type :public
+                                                  (msg/send {:conn msg-conn
+                                                             :type :datalog-console.remote/db-as-string
+                                                             :data "data"})
+                                                  (js/console.log "db-as-string: "  (crypto/encode (pr-str @db-conn)))
+                                                  (crypto/encrypt {:key-type :public
                                                                    :keypair keypair
-                                                                   :data "test data " #_(pr-str @db-conn)}))
+                                                                   :data"test data " #_(pr-str @db-conn)}
+                                                                  (fn [data]
+                                                                    (js/console.log "THIS IS is the encrypted data: " data)
+                                                                    #_(msg/send {:conn msg-conn
+                                                                               :type :datalog-console.remote/db-as-string
+                                                                               :data data})))
+                                                  #_(crypto/encrypt {:key-type :public
+                                                                   :keypair keypair
+                                                                   :data "test data " #_(pr-str @db-conn)}
+                                                                  (fn [data]
+                                                                    (msg/send {:conn msg-conn
+                                                                               :type :datalog-console.remote/db-as-string
+                                                                               :data data}))))
 
                                                 :datalog-console.client/transact!
                                                 (fn [msg-conn msg]
@@ -59,6 +71,7 @@
                                                              :type :datalog-console.remote/version
                                                              :data dc/version}))}
                                        :send-fn (fn [{:keys [to conn msg]}]
+                                                  (js/console.log "sending message from integration: " msg)
                                                   (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
                                                                              :conn-id (:id @conn)})))
                                        :receive-fn (fn [cb msg-conn]
@@ -67,6 +80,7 @@
                                                                           (when (and (identical? (.-source event) js/window)
                                                                                      (not= (:id @msg-conn) (gobj/getValueByKeys event "data" "conn-id")))
                                                                             (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
+                                                                              (js/console.log "integration received: " )
                                                                               (cb (cljs.reader/read-string raw-msg)))))))})]
         (d/listen! db-conn (fn [x]
                              (let [tx-data (:tx-data x)]
@@ -80,25 +94,21 @@
 
 
 (comment
-  ;; repl code
-
-  ;;;;;;;;;;;;;;;;;
-  ;; Generate keys
-  ;;;;;;;;;;;;;;;;
 
 
   (def keypair (crypto/generate-key))
 
-  (crypto/encrypt {:cb #(js/console.log (crypto/decrypt {:cb (fn [s] (js/console.log s))
-                                                         :keypair keypair
-                                                         :key-type :private
-                                                         :data %}))
-                   :key-type :public
+
+
+  (crypto/encrypt {:key-type :public
                    :keypair keypair
-                   :data "the text I am sending"})
-
-
-
+                   :data "the text I am sending"}
+                  (fn [s]
+                    (crypto/decrypt {:keypair keypair
+                                     :key-type :private
+                                     :data s}
+                                    (fn [s]
+                                      (js/console.log "decrypt" s)))))
 
 
 
