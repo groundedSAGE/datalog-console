@@ -53,9 +53,10 @@
 
                                                   :datalog-console.remote/db-as-string
                                                   (fn [_msg-conn msg]
-                                                    (when @r-db-conn (hbr/disconnect! @r-db-conn))
-                                                    (reset! r-db-conn (d/conn-from-db (cljs.reader/read-string (decrypt (:data msg) confirmation-code))))
-                                                    (hbr/connect! @r-db-conn))
+                                                    (js/console.log "this is the db as string: " msg)
+                                                    #_(when @r-db-conn (hbr/disconnect! @r-db-conn))
+                                                    #_(reset! r-db-conn (d/conn-from-db (cljs.reader/read-string (decrypt (:data msg) confirmation-code))))
+                                                    #_(hbr/connect! @r-db-conn))
 
                                                   :datalog-console.client.response/transact!
                                                   (fn [_msg-conn msg] (when (:error (:data msg))

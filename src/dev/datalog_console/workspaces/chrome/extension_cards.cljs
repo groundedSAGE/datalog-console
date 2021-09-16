@@ -6,6 +6,10 @@
             [datalog-console.workspaces.workspace-db-conn :refer [conn]]
             [datalog-console.integrations.datascript :as integrations]))
 
+;; an extra option for security
+;; {:security {:level [none medium high]
+;;             :salt "salt added by the application developer"}}
+
 (integrations/enable! {:conn conn
                        :disable-write? false})
 
