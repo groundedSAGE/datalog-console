@@ -33,7 +33,7 @@
                                      :routes {:datalog-console.background/secure-connection
                                               (fn [msg-conn msg]
                                                 (let [send-wrapped (fn [wrapped-key]
-                                                                     (js/console.log "wrapped-key: " (crypto/ab2str wrapped-key))
+                                                                    ;;  (js/console.log "wrapped-key: " (crypto/ab2str wrapped-key))
                                                                      #_(crypto/unwrapKey {:format "jwk"
                                                                                         :wrappedKey wrapped-key
                                                                                         :unwrappingKey (:private @keypair)
@@ -117,13 +117,14 @@
 
   (def keypair (crypto/generate-key))
 
+  (js/console.log @keypair)
 
 
   (crypto/encrypt {:key-type :public
                    :keypair keypair
                    :data "the text I am sending"}
                   (fn [s]
-                    (js/console.log "the s" s)
+                    (js/console.log "s is: " (crypto/base64-to-buff s))
                     (crypto/decrypt {:keypair keypair
                                      :key-type :private
                                      :data s}

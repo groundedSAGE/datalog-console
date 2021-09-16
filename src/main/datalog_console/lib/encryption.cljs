@@ -18,7 +18,6 @@
 (defonce keypair (atom nil))
 
 
-
 ;; Utils
 
 (defn encode [data]
@@ -30,9 +29,8 @@
 (defn buff->base64 [buff]
   (js/btoa (.apply js/String.fromCharCode nil (js/Uint8Array. buff))))
 
-(defn base64->buff [buff]
-  (.from js/Uint8Array.
-         (js/atob (js/btoa (.apply js/String.fromCharCode nil (js/Uint8Array. buff))))
+(defn base64->buff [b64]
+  (.from js/Uint8Array. (js/atob b64)
          (fn [c] (.charCodeAt c nil))))
 
 ;; consider promise core async interop. But we don't want this to go into the integrations and make people depend on core.async
@@ -121,11 +119,11 @@
 
 (defn decrypt [{:keys [key-type keypair data]} cb]
   ;; might want to do decoding outside of this function
-  (js/console.log "decrypting: " (key-type @keypair) (base64->buff data))
   (when @keypair
     (-> (.decrypt js/crypto.subtle
-                  (clj->js rsa-key-algo) (key-type @keypair) (base64->buff data))
+                  #js {:name "RSA-OAEP"} (key-type @keypair) (base64->buff data))
         (.then (fn [s]
+                 (js/console.log)
                  (cb (decode s))))
         (.catch #(js/console.log %)))))
 
@@ -139,4 +137,3 @@
            :extractable true
            :keyUsages ["encrypt" "wrapKey"]}
           cb))
-

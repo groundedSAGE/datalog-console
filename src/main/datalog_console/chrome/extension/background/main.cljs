@@ -49,9 +49,7 @@
                                 (fn [conn msg]
                                   (when-let [encrypted-key (:wrapped-key (:data msg))]
                                     (js/console.log "securing connection: " encrypted-key)
-                                    (js/console.log "private key: " (:private @keypair))
-                                    #_(js/console.log "buffered: " (crypto/base64->buff encrypted-key))
-                                    #_(crypto/unwrapKey {:format "jwk"
+                                    (crypto/unwrapKey {:format "jwk"
                                                        :wrappedKey (crypto/base64->buff encrypted-key)
                                                        :unwrappingKey (:private @keypair)
                                                        :unwrapAlgo (clj->js crypto/rsa-key-algo)
