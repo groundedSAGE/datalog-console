@@ -15,7 +15,7 @@
                             {:chrome/options {:persistent false}
                              :entries        [datalog-console.chrome.extension.background.main]}}
 
- :permissions             ["file:///*" "http://*/*" "https://*/*" "storage"]
+ :permissions             ["file:///*" "http://*/*" "https://*/*" "storage" "activeTab" "tabs"]
  :externally-connectable  {:ids ["*"]}
  :content-security-policy ["default-src 'self';"
                            "script-src 'self' 'unsafe-eval' http://localhost:9610;"

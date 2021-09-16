@@ -21,14 +21,10 @@
 (def r-error (r/atom nil))
 (def entity-lookup-ratom (r/atom ""))
 (def remote-config (r/atom {}))
+(def security-code (r/atom {}))
 
 
 ;; Security
-
-(defn unique-random-numbers [n]
-  (let [a-set (set (take n (repeatedly #(rand-int n))))]
-    (concat a-set (clojure.set/difference (set (take n (range)))
-                                          a-set))))
 
 (defn encrypt [msg secret]
   (.toString (.encrypt (.-AES crypto) msg secret)))
@@ -36,12 +32,16 @@
 (defn decrypt [msg secret]
   (.toString (.decrypt (.-AES crypto) msg secret) (.-Utf8 (.-enc crypto))))
 
-(def confirmation-code (clojure.string/join (unique-random-numbers 6)))
+(def confirmation-code "secret" #_(clojure.string/join (unique-random-numbers 6)))
 
 (try
   ;; Inside of a try for cases when there is no browser environment
   (def background-conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.client/devtool-port"})
-                                         :routes {:datalog-console.remote/init-config
+                                         :routes {:datalog-console.background/confirmation-code
+                                                  (fn [_msg-conn msg]
+                                                    (reset! security-code (:data msg)))
+
+                                                  :datalog-console.remote/init-config
                                                   (fn [_msg-conn msg]
                                                     (reset! remote-config (:data msg)))
 
@@ -127,7 +127,6 @@
       [:div {:class "relative text-xs h-full w-full grid grid-cols-4"}
        [:div {:class "flex flex-col border-r pt-2 overflow-hidden col-span-1 "}
         [:h2 {:class "pl-1 text-xl border-b flex center"} "Schema"]
-        [:p {:class "p-4 border text-xl"} confirmation-code]
         (when @r-db-conn
           [:div {:class "overflow-auto h-full w-full"}
            [c.schema/schema @r-db-conn]])]
@@ -138,11 +137,13 @@
           [:div {:class "overflow-auto h-full w-full"}
            [c.entities/entities @r-db-conn entity-lookup-ratom]])]
        [tabs r-db-conn entity-lookup-ratom]
-       [:button
-        {:class "absolute top-2 right-1 py-1 px-2 rounded bg-gray-200 border"
-         :on-click (fn []
-                     (when-not @loaded-db? (reset! loaded-db? true))
-                     (js/console.log "the confirmation code: " (type confirmation-code))
-                     (msg/send {:conn background-conn
-                                :type :datalog-console.client/request-whole-database-as-string}))}
-        (if @loaded-db? "Refresh database" "Load database")]])))
+       [:div {:class "absolute top-2 right-1 flex items-center"}
+        [:p {:class "px-2"} [:b @security-code]]
+        [:button
+         {:class "py-1 px-2 rounded bg-gray-200 border"
+          :on-click (fn []
+                      (when-not @loaded-db? (reset! loaded-db? true))
+                      (js/console.log "the confirmation code: " (type confirmation-code))
+                      (msg/send {:conn background-conn
+                                 :type :datalog-console.client/request-whole-database-as-string}))}
+         (if @loaded-db? "Refresh database" "Load database")]]])))

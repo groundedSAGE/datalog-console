@@ -19,6 +19,7 @@
                                                        (when (and (identical? (.-source event) js/window)
                                                                   (not= (:id @conn) (gobj/getValueByKeys event "data" "conn-id")))
                                                          (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
+                                                           (js/console.log "this is the active tab: " js/tabs)
                                                            (cb (cljs.reader/read-string raw-msg)))))))}))
 
 (reset! background-conn
@@ -31,6 +32,7 @@
                                         (.addListener (gobj/get (:to @conn) "onMessage")
                                                       (fn [msg]
                                                         (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
+                                                          (js/console.log "raw msg: " raw-msg)
                                                           (cb (cljs.reader/read-string raw-msg))))))}))
 
 (defn supports-datalog-console? []

@@ -21,10 +21,12 @@ pom.xml.asc
 .nrepl-*
 .DS_Store
 
+
 .hgignore
 .hg/
 
 .lsp
+.clj-kondo
 .history
 .calva
 .cpcache

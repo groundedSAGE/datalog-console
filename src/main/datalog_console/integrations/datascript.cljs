@@ -1,10 +1,9 @@
 (ns datalog-console.integrations.datascript
   (:require [goog.object :as gobj]
             [cljs.reader]
-            ["crypto-js" :as crypto]
-            ["Draggable" :as Draggable]
             [datascript.core :as d]
             [datalog-console.lib.version :as dc]
+            [datalog-console.lib.encryption :as crypto]
             [datalog-console.lib.messaging :as msg]))
 
 
@@ -13,15 +12,8 @@
     (d/transact db-conn (cljs.reader/read-string transact-str))
     (catch js/Error e {:error (goog.object/get e "message")})))
 
-(defn encrypt [msg secret]
-  (.toString (.encrypt (.-AES crypto) msg secret)))
 
-(defn decrypt [msg secret]
-  (.toString (.decrypt (.-AES crypto) msg secret) (.-Utf8 (.-enc crypto))))
-
-(def confirmation-code (atom nil))
-
-
+(defonce confirmation-code (atom nil))
 
 (defn enable!
   "Takes a [datascript](https://github.com/tonsky/datascript) database connection atom. Adds message handlers for a remote datalog-console process to communicate with. E.g. the datalog-console browser [extension](https://chrome.google.com/webstore/detail/datalog-console/cfgbajnnabfanfdkhpdhndegpmepnlmb?hl=en)."
@@ -32,7 +24,8 @@
       (let [msg-conn (msg/create-conn {:to js/window
                                        :routes {:datalog-console.client/init!
                                                 (fn [msg-conn msg]
-                                                  (reset! confirmation-code (js/prompt "Please enter confirmation code"))
+                                                  ;;  (when-not @confirmation-code
+                                                  ;;   (reset! confirmation-code (js/prompt "Please enter confirmation code")))
                                                   (msg/send {:conn msg-conn
                                                              :type :datalog-console.remote/init-config
                                                              :data {:integration-version dc/version
@@ -40,9 +33,20 @@
 
                                                 :datalog-console.client/request-whole-database-as-string
                                                 (fn [msg-conn _msg]
+                                                  (js/console.log "this is the active tab: " js/tabs)
+                                                  ;; (js/console.log js/Crypto)
+                                                  ;; (js/console.log js/SubtleCrypto)
+                                                  ;; (js/console.log "the int array: " random-code)
+                                                  ;; (js/console.log (.getRandomValues js/crypto ))
+                                                  #_(js/console.log "generate key"
+                                                                  (.generateKey js/crypto.subtle
+                                                                                (clj->js {:name "AES-GCM"
+                                                                                          :length 256})
+                                                                                true
+                                                                                (clj->js ["encrypt" "decrypt"])))
                                                   (msg/send {:conn msg-conn
                                                              :type :datalog-console.remote/db-as-string
-                                                             :data (encrypt (pr-str @db-conn) @confirmation-code)}))
+                                                             :data (pr-str @db-conn)}))
 
                                                 :datalog-console.client/transact!
                                                 (fn [msg-conn msg]
@@ -74,10 +78,35 @@
                              (let [tx-data (:tx-data x)]
                                (msg/send {:conn msg-conn
                                           :type :datalog-console.client.response/tx-data
-                                          :data (encrypt (pr-str tx-data) @confirmation-code)})))))
+                                          :data (pr-str tx-data)})))))
 
 
       (catch js/Error _e nil))))
 
 
 
+(comment
+  ;; repl code
+
+  ;;;;;;;;;;;;;;;;;
+  ;; Generate keys
+  ;;;;;;;;;;;;;;;;
+
+
+  (def keypair (crypto/generate-key))
+
+
+
+  (crypto/encrypt {:cb #(js/console.log (crypto/decrypt {:cb (fn [s] (js/console.log s)) 
+                                                          :keypair keypair 
+                                                          :data %}))
+                    :keypair keypair
+                    :data "the text I am sending"})
+
+
+
+
+
+
+  ;; format blocker
+  )
