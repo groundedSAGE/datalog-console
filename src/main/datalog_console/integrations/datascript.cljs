@@ -1,10 +1,15 @@
 (ns datalog-console.integrations.datascript
   (:require [goog.object :as gobj]
             [cljs.reader]
+            [cljs-bean.core :refer [bean ->clj ->js]]
             [datascript.core :as d]
             [datalog-console.lib.version :as dc]
             [datalog-console.lib.encryption :as crypto]
             [datalog-console.lib.messaging :as msg]))
+
+;; Security
+(defonce confirmation-code (atom nil))
+(defonce keypair (crypto/generate-key))
 
 
 (defn transact-from-devtool! [db-conn transact-str]
@@ -12,8 +17,6 @@
     (d/transact db-conn (cljs.reader/read-string transact-str))
     (catch js/Error e {:error (goog.object/get e "message")})))
 
-
-(defonce confirmation-code (atom nil))
 
 (defn enable!
   "Takes a [datascript](https://github.com/tonsky/datascript) database connection atom. Adds message handlers for a remote datalog-console process to communicate with. E.g. the datalog-console browser [extension](https://chrome.google.com/webstore/detail/datalog-console/cfgbajnnabfanfdkhpdhndegpmepnlmb?hl=en)."
@@ -33,20 +36,12 @@
 
                                                 :datalog-console.client/request-whole-database-as-string
                                                 (fn [msg-conn _msg]
-                                                  (js/console.log "this is the active tab: " js/tabs)
-                                                  ;; (js/console.log js/Crypto)
-                                                  ;; (js/console.log js/SubtleCrypto)
-                                                  ;; (js/console.log "the int array: " random-code)
-                                                  ;; (js/console.log (.getRandomValues js/crypto ))
-                                                  #_(js/console.log "generate key"
-                                                                  (.generateKey js/crypto.subtle
-                                                                                (clj->js {:name "AES-GCM"
-                                                                                          :length 256})
-                                                                                true
-                                                                                (clj->js ["encrypt" "decrypt"])))
-                                                  (msg/send {:conn msg-conn
-                                                             :type :datalog-console.remote/db-as-string
-                                                             :data (pr-str @db-conn)}))
+                                                  (crypto/encrypt {:cb #(do (js/console.log (pr-str %))#_(msg/send {:conn msg-conn
+                                                                                       :type :datalog-console.remote/db-as-string
+                                                                                       :data %}))
+                                                                   :key-type :public
+                                                                   :keypair keypair
+                                                                   :data "test data " #_(pr-str @db-conn)}))
 
                                                 :datalog-console.client/transact!
                                                 (fn [msg-conn msg]
@@ -72,7 +67,6 @@
                                                                           (when (and (identical? (.-source event) js/window)
                                                                                      (not= (:id @msg-conn) (gobj/getValueByKeys event "data" "conn-id")))
                                                                             (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
-                                                                              ;; (js/console.log "this is the raw message: " raw-msg)
                                                                               (cb (cljs.reader/read-string raw-msg)))))))})]
         (d/listen! db-conn (fn [x]
                              (let [tx-data (:tx-data x)]
@@ -95,13 +89,13 @@
 
   (def keypair (crypto/generate-key))
 
-
-
-  (crypto/encrypt {:cb #(js/console.log (crypto/decrypt {:cb (fn [s] (js/console.log s)) 
-                                                          :keypair keypair 
-                                                          :data %}))
-                    :keypair keypair
-                    :data "the text I am sending"})
+  (crypto/encrypt {:cb #(js/console.log (crypto/decrypt {:cb (fn [s] (js/console.log s))
+                                                         :keypair keypair
+                                                         :key-type :private
+                                                         :data %}))
+                   :key-type :public
+                   :keypair keypair
+                   :data "the text I am sending"})
 
 
 

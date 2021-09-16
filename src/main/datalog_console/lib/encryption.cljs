@@ -11,7 +11,11 @@
                                 :hash "SHA-256"})
                       true
                       ["encrypt" "decrypt" "wrapKey" "unwrapKey"])
-        (.then (fn [keys] (reset! key-atom keys))))
+        (.then (fn [keys] (reset! key-atom {:private (.-privateKey keys)
+                                            :public (.-publicKey keys)
+                                            ;; TODO: add the others
+                                            ;; :object keys
+                                            }))))
     key-atom))
 
 (defn encode [data]
@@ -20,18 +24,21 @@
 (defn decode [data]
   (.decode (js/TextDecoder.) data))
 
-(defn encrypt [{:keys [cb keypair data]}]
+(defn encrypt [{:keys [cb key-type keypair data]}]
     ;; might want to do encoding outside of this function
-  (-> (.encrypt js/crypto.subtle
-                #js {:name "RSA-OAEP"} (.-publicKey @keypair) (encode data))
-      (.then (fn [s]
-               (cb s)))))
+  (when @keypair
+    (-> (.encrypt js/crypto.subtle
+                  #js {:name "RSA-OAEP"} (key-type @keypair) (encode data))
+        (.then (fn [s]
+                 (cb s)))
+        (.catch #(js/console.log %)))))
 
-(defn decrypt [{:keys [cb keypair data]}]
+(defn decrypt [{:keys [cb key-type keypair data]}]
   ;; might want to do decoding outside of this function
-  (-> (.decrypt js/crypto.subtle
-                #js {:name "RSA-OAEP"} (.-privateKey @keypair) data)
-      (.then (fn [s]
-               (cb (decode s))))
-      (.catch #(js/console.log %))))
+  (when @keypair
+    (-> (.decrypt js/crypto.subtle
+                  #js {:name "RSA-OAEP"} (key-type @keypair) data)
+        (.then (fn [s]
+                 (cb (decode s))))
+        (.catch #(js/console.log %)))))
 
