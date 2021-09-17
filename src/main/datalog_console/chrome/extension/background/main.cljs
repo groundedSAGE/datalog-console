@@ -27,7 +27,6 @@
 ;; security
 ;;;;;;;;;;;;
 
-(defonce security-codes (atom {}))
 (defonce key-manager (atom {}))
 
 (defn random-code []
@@ -41,10 +40,9 @@
 
 (js/chrome.runtime.onConnect.addListener
  (fn [port]
-  ;;  (js/console.log (gobj/get port "name") (= (gobj/get port "name") (str :datalog-console.remote/extension-popup)))
-  ;;  (js/console.log "this is the port: " port)
    (let [tab-id (atom (gobj/getValueByKeys port "sender" "tab" "id"))]
      (msg/create-conn {:to port
+                       :encryption (atom nil)
                        :send-fn (fn [{:keys [to msg]}]
                                   (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)})))
                        :tab-id tab-id
@@ -62,11 +60,21 @@
                                                         (swap! key-manager assoc @(:tab-id @conn) key)))))
 
                                 :datalog-console.client/init! (fn [conn msg]
-                                                                (swap! port-conns assoc-in [:tools @(:tab-id @conn)] conn)
-                                                                (let [to (get-in @port-conns [:remote @(:tab-id @conn)])]
-                                                                  ((msg/forward to) conn (assoc-in msg [:data :confirmation-code] code))))
+                                                                (let [tab-id @(:tab-id @conn)]
+                                                                  (swap! port-conns assoc-in [:tools tab-id] conn)
+
+                                                                  ;; Send confirmation code to devtool
+                                                                  (msg/send {:conn (get-in @port-conns [:tools tab-id])
+                                                                             :type :datalog-console.background/confirmation-code
+                                                                             :data code})
+
+                                                                  ;; Forward message to application
+                                                                  (msg/send {:conn (get-in @port-conns [:remote tab-id])
+                                                                             :type (:type msg)
+                                                                             :data {:confirmation-code code}
+                                                                             :encryption {:key (get @key-manager tab-id)
+                                                                                          :algorithm crypto/aes-key-algo}})))
                                 :datalog-console.remote/db-detected (fn [conn _msg]
-                                                                      (js/console.log "db-deteced")
                                                                       (crypto/export {:format "jwk"
                                                                                       :key (:public @keypair)}
                                                                                      (fn [exported-key]
@@ -75,9 +83,6 @@
                                                                                                   :data {:initial-key exported-key}})
                                                                                        #(js/console.log "this is the export one: "
                                                                                                         (crypto/import-jwk exported-key (fn [x] (js/console.log x))))))
-                                                                      #_(msg/send {:conn (get-in @port-conns [:remote @(:tab-id @conn)])
-                                                                                   :type :datalog-console.background/secure-connection
-                                                                                   :data {:initial-key (:public-key @keypair)}})
                                                                       (set-icon-and-popup @(:tab-id @conn)))
                                 :* (fn [conn msg]
                                      (let [env-context (if (gobj/getValueByKeys (:to @conn) "sender" "tab" "id") :tools :remote)
@@ -85,16 +90,23 @@
                                        ((msg/forward to) conn msg)))}
                        :receive-fn (fn [cb conn]
                                      (when-let [tab-id (gobj/getValueByKeys port "sender" "tab" "id")]
-                                      ;;  (swap! security-codes assoc tab-id (random-code))
-                                      ;;  (js/console.log "the security codes: " @security-codes)
-                                       (js/console.log "the tab id: " tab-id)
+                                      ;; (js/console.log "the tab id: " tab-id)
                                        (swap! port-conns assoc-in [:remote tab-id] conn))
                                      (let [listener (fn [message _port]
                                                       (when-let [msg-tab-id (gobj/get message "tab-id")]
                                                         (reset! tab-id msg-tab-id))
-                                                      ;; (js/console.log "this is the message: " (gobj/get message (str ::msg/msg)))
-                                                      ;; (js/console.log "this is the message: " (:datalog-console.remote/db-detected (js->clj (gobj/get message (str ::msg/msg)))))
-                                                      (cb (cljs.reader/read-string (gobj/get message (str ::msg/msg)))))]
+                                                      (let [raw-msg (gobj/get message (str ::msg/msg))
+                                                            parsed-msg (cljs.reader/read-string raw-msg)]
+                                                        (if (:encrypted? parsed-msg)
+                                                          (crypto/decrypt {:key (get @key-manager @(:tab-id @conn))
+                                                                           :algorithm crypto/aes-key-algo
+                                                                           :data (:data parsed-msg)}
+                                                                          #(do 
+                                                                             (js/console.log "this is the data: " (type %))
+                                                                             (cb (assoc parsed-msg :data %))))
+                                                          (cb parsed-msg))
+                                                        #_(js/console.log "raw msg: " raw-msg)
+                                                        #_(cb (cljs.reader/read-string raw-msg))))]
                                        (.addListener (gobj/get port "onMessage") listener)
                                        (.addListener (gobj/get port "onDisconnect")
                                                      (fn [port]

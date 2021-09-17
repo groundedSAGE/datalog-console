@@ -5,17 +5,14 @@
 
 ;; Constants
 
-(def rsa-key-algo {:name "RSA-OAEP"
-                   :modulusLength 4096
-                   :publicExponent (js/Uint8Array. [1 0 1])
-                   :hash "SHA-256"})
+(defonce rsa-key-algo {:name "RSA-OAEP"
+                       :modulusLength 4096
+                       :publicExponent (js/Uint8Array. [1 0 1])
+                       :hash "SHA-256"})
 
-(def aes-key-algo {:name "AES-CTR"
-                   :length 256})
-
-;; testing
-
-(defonce keypair (atom nil))
+(defonce aes-key-algo {:name "AES-GCM"
+                       :length 256
+                       :iv (js/Uint8Array. 12)})
 
 
 ;; Utils
@@ -33,7 +30,7 @@
   (.from js/Uint8Array. (js/atob b64)
          (fn [c] (.charCodeAt c nil))))
 
-;; consider promise core async interop. But we don't want this to go into the integrations and make people depend on core.async
+
 (defn generate-key []
   (let [key-atom (atom nil)]
     (-> (.generateKey js/crypto.subtle
@@ -43,7 +40,7 @@
         (.then (fn [keys] (reset! key-atom {:private (.-privateKey keys)
                                             :public (.-publicKey keys)
                                             ;; TODO: add the others
-                                            ;; :object keys
+                                            :object keys
                                             }))))
     key-atom))
 
@@ -107,24 +104,28 @@
                (cb result)))
       (.catch #(js/console.log %))))
 
-(defn encrypt [{:keys [key-type keypair data]} cb]
+(defn encrypt [{:keys [algorithm key data]} cb]
     ;; might want to do encoding outside of this function
-  (when @keypair
-    (-> (.encrypt js/crypto.subtle
-                  #js {:name "RSA-OAEP"} (key-type @keypair) (encode data))
-        (.then (fn [s]
-                 (cb (buff->base64 s))))
-        (.catch #(js/console.log %)))))
+  (-> (.encrypt js/crypto.subtle
+                (clj->js algorithm)
+                key
+                (encode data))
+      (.then (fn [s]
+               (cb (buff->base64 s))))
+      (.catch #(js/console.log %))))
 
-(defn decrypt [{:keys [key-type keypair data]} cb]
+
+(defn decrypt [{:keys [algorithm key data]} cb]
   ;; might want to do decoding outside of this function
-  (when @keypair
+  (when key
     (-> (.decrypt js/crypto.subtle
-                  #js {:name "RSA-OAEP"} (key-type @keypair) (base64->buff data))
+                  (clj->js algorithm)
+                  key
+                  (base64->buff data))
         (.then (fn [s]
-                 (js/console.log)
                  (cb (decode s))))
         (.catch #(js/console.log %)))))
+
 
 
 ;; Application specific code
@@ -136,3 +137,9 @@
            :extractable true
            :keyUsages ["encrypt" "wrapKey"]}
           cb))
+
+(defn key-swap [{:keys [received-key wrap-settings]} cb]
+  (import-jwk received-key
+   (fn [imported-key]
+     (wrapKey (assoc wrap-settings :wrappingKey imported-key)
+              #(cb %)))))

@@ -11,7 +11,6 @@
                            :attempts 0
                            :connected-at nil}))
 
-(defonce keypair (crypto/generate-key))
 (defonce aes-key (crypto/generate-aes-key))
 
 
@@ -25,23 +24,22 @@
 (defn enable!
   "Takes a [datascript](https://github.com/tonsky/datascript) database connection atom. Adds message handlers for a remote datalog-console process to communicate with. E.g. the datalog-console browser [extension](https://chrome.google.com/webstore/detail/datalog-console/cfgbajnnabfanfdkhpdhndegpmepnlmb?hl=en)."
   [{db-conn :conn
-    disable-write? :disable-write?}]
+    disable-write? :disable-write?
+    secure? :secure?}] ;do something with the secure? flag
   (try
     (js/document.documentElement.setAttribute "__datalog-console-remote-installed__" true)
     (let [msg-conn (msg/create-conn {:to js/window
+                                     :encryption (atom {:key aes-key
+                                                        :algo crypto/aes-key-algo})
                                      :routes {:datalog-console.background/secure-connection
                                               (fn [msg-conn msg]
-                                                (let [send-wrapped (fn [wrapped-key]
-                                                                     (msg/send {:conn msg-conn
-                                                                                :type :datalog-console.remote/secure-connection
-                                                                                :data {:wrapped-key (crypto/buff->base64 wrapped-key)}}))
-                                                      wrap-key (fn [imported-key]
-                                                                 (crypto/wrapKey {:format "jwk"
+                                                (crypto/key-swap {:received-key (:initial-key (:data msg))
+                                                                  :wrap-settings {:format "jwk"
                                                                                   :key @aes-key
-                                                                                  :wrappingKey imported-key
-                                                                                  :wrapAlgo (clj->js crypto/rsa-key-algo)}
-                                                                                 send-wrapped))]
-                                                  (crypto/import-jwk (:initial-key (:data msg)) wrap-key)))
+                                                                                  :wrapAlgo (clj->js crypto/rsa-key-algo)}}
+                                                                 #(msg/send {:conn msg-conn
+                                                                             :type :datalog-console.remote/secure-connection
+                                                                             :data {:wrapped-key (crypto/buff->base64 %)}})))
 
                                               :datalog-console.client/init!
                                               (fn [msg-conn msg]
@@ -59,15 +57,11 @@
 
                                               :datalog-console.client/request-whole-database-as-string
                                               (fn [msg-conn _msg]
-                                                (crypto/encrypt {:key-type :public
-                                                                 :keypair keypair
-                                                                 :data "test data " #_(pr-str @db-conn)}
-                                                                (fn [data]
-                                                                  (js/console.log "THIS IS is the encrypted data: " data)
-                                                                  ;; (crypto/decrypt )
-                                                                  (msg/send {:conn msg-conn
-                                                                             :type :datalog-console.remote/db-as-string
-                                                                             :data data}))))
+                                                (msg/send {:conn msg-conn
+                                                           :type :datalog-console.remote/db-as-string
+                                                           :data (pr-str @db-conn)
+                                                           :encryption {:key @aes-key
+                                                                        :algorithm crypto/aes-key-algo}}))
 
                                               :datalog-console.client/transact!
                                               (fn [msg-conn msg]
@@ -76,16 +70,8 @@
                                                     (when (:error transact-result)
                                                       (msg/send {:conn msg-conn
                                                                  :type :datalog-console.client.response/transact!
-                                                                 :data transact-result})))))
-
-                                                ;; Keep this around for legacy purposes
-                                              :datalog-console.client/request-integration-version
-                                              (fn [msg-conn _msg]
-                                                (msg/send {:conn msg-conn
-                                                           :type :datalog-console.remote/version
-                                                           :data dc/version}))}
+                                                                 :data transact-result})))))}
                                      :send-fn (fn [{:keys [to conn msg]}]
-                                                 (js/console.log "sending message from integration: " msg)
                                                 (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
                                                                            :conn-id (:id @conn)})))
                                      :receive-fn (fn [cb msg-conn]
@@ -94,8 +80,13 @@
                                                                         (when (and (identical? (.-source event) js/window)
                                                                                    (not= (:id @msg-conn) (gobj/getValueByKeys event "data" "conn-id")))
                                                                           (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
-                                                                            ;; (js/console.log "integration received: " raw-msg)
-                                                                            (cb (cljs.reader/read-string raw-msg)))))))})]
+                                                                            (let [parsed-msg (cljs.reader/read-string raw-msg)]
+                                                                              (if (:encrypted? parsed-msg)
+                                                                                (crypto/decrypt {:key @aes-key
+                                                                                                 :algorithm crypto/aes-key-algo
+                                                                                                 :data (:data parsed-msg)}
+                                                                                                #(cb (assoc parsed-msg :data (cljs.reader/read-string %))))
+                                                                                (cb parsed-msg))))))))})]
       (d/listen! db-conn (fn [x]
                            (let [tx-data (:tx-data x)]
                              (msg/send {:conn msg-conn
@@ -115,16 +106,33 @@
   (js/console.log @keypair)
 
 
-  (crypto/encrypt {:key-type :public
-                   :keypair keypair
+  (crypto/encrypt {:key (:public @keypair)
+                   :algorithm crypto/rsa-key-algo
                    :data "the text I am sending"}
                   (fn [s]
-                    (js/console.log "s is: " (crypto/base64-to-buff s))
-                    (crypto/decrypt {:keypair keypair
-                                     :key-type :private
+                    (js/console.log "s is: " s)
+                    (crypto/decrypt {:key (:private @keypair)
+                                     :algorithm crypto/rsa-key-algo
                                      :data s}
                                     (fn [s]
                                       (js/console.log "decrypt" s)))))
+
+
+
+
+  (js/console.log @aes-key)
+
+
+  (crypto/encrypt {:key @aes-key
+                   :algorithm crypto/aes-key-algo
+                   :data "the text I am sending"}
+                      (fn [s]
+                        (js/console.log "s is: " s)
+                        #_(crypto/decrypt {:key aes-key
+                                         :algorithm crypto/aes-key-algo
+                                         :data s}
+                                        (fn [s]
+                                          (js/console.log "decrypted:" s)))))
 
 
 

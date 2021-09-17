@@ -24,8 +24,8 @@
 (reset! background-conn
         (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.remote/content-script-port"})
                           :routes {:* (msg/forward app-tab-conn)}
+                          :id "background-conn"
                           :send-fn (fn [{:keys [to msg]}]
-                                    ;;  (js/console.log "Content script sending to background-conn: " msg)
                                      (.postMessage to
                                                    (clj->js {(str ::msg/msg) (pr-str msg)})))
                           :receive-fn (fn [cb conn]

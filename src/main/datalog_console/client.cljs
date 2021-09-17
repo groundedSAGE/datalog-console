@@ -32,14 +32,14 @@
 (defn decrypt [msg secret]
   (.toString (.decrypt (.-AES crypto) msg secret) (.-Utf8 (.-enc crypto))))
 
-(def confirmation-code "secret" #_(clojure.string/join (unique-random-numbers 6)))
+(def confirmation-code (r/atom nil))
 
 (try
   ;; Inside of a try for cases when there is no browser environment
   (def background-conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.client/devtool-port"})
                                          :routes {:datalog-console.background/confirmation-code
                                                   (fn [_msg-conn msg]
-                                                    (reset! security-code (:data msg)))
+                                                    (reset! confirmation-code (:data msg)))
 
                                                   :datalog-console.remote/init-config
                                                   (fn [_msg-conn msg]
@@ -47,16 +47,15 @@
 
                                                   :datalog-console.client.response/tx-data
                                                   (fn [_msg-conn msg]
-                                                    (doseq [datom (cljs.reader/read-string (decrypt (:data msg) confirmation-code))]
+                                                    (doseq [datom (cljs.reader/read-string (:data msg))]
                                                       (let [{:keys [e a v _tx added]} datom]
                                                         (d/transact! @r-db-conn [[(if added :db/add :db/retract) e a v]]))))
 
                                                   :datalog-console.remote/db-as-string
                                                   (fn [_msg-conn msg]
-                                                    (js/console.log "this is the db as string: " msg)
-                                                    #_(when @r-db-conn (hbr/disconnect! @r-db-conn))
-                                                    #_(reset! r-db-conn (d/conn-from-db (cljs.reader/read-string (decrypt (:data msg) confirmation-code))))
-                                                    #_(hbr/connect! @r-db-conn))
+                                                    (when @r-db-conn (hbr/disconnect! @r-db-conn))
+                                                    (reset! r-db-conn (d/conn-from-db (cljs.reader/read-string (:data msg))))
+                                                    (hbr/connect! @r-db-conn))
 
                                                   :datalog-console.client.response/transact!
                                                   (fn [_msg-conn msg] (when (:error (:data msg))
@@ -70,7 +69,6 @@
                                                        (.addListener (gobj/get (:to @msg-conn) "onMessage")
                                                                      (fn [msg]
                                                                        (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
-                                                                         (js/console.log  "raw msg: " raw-msg)
                                                                          (cb (cljs.reader/read-string raw-msg))))))}))
 
   (msg/send {:conn background-conn
@@ -139,7 +137,7 @@
            [c.entities/entities @r-db-conn entity-lookup-ratom]])]
        [tabs r-db-conn entity-lookup-ratom]
        [:div {:class "absolute top-2 right-1 flex items-center"}
-        [:p {:class "px-2"} [:b @security-code]]
+        [:p {:class "px-2"} [:b @confirmation-code]]
         [:button
          {:class "py-1 px-2 rounded bg-gray-200 border"
           :on-click (fn []

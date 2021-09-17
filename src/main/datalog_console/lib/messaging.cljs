@@ -1,6 +1,7 @@
 (ns datalog-console.lib.messaging
   (:require [clojure.core.async :as async :refer [>! <! go chan]]
             [nano-id.core :refer [nano-id]]
+            [datalog-console.lib.encryption :as crypto]
             [cljs.reader]))
 
 
@@ -12,16 +13,26 @@
 
 (defn enqueue [conn {:keys [id] :as msg}]
   (when conn
-    (swap! conn assoc-in [:msgs id] (merge msg {:tries 0}))
+    (swap! conn assoc-in [:msgs id] (merge msg {:tries 0})) ; This adds tries to the msg. Do we want
     (go (>! (:send-queue @conn) msg))))
 
-  (defn send [{:keys [conn type data]}]
+  (defn send [{:keys [conn type data encryption encrypted?]}]
     (let [ts (js/Date.now)
           id (nano-id)]
-      (enqueue conn {:id id
-                     :type type
-                     :data data
-                     :timestamp ts})))
+      (if encryption
+        (crypto/encrypt (assoc encryption :data data)
+                        (fn [encrypted-data]
+                          (enqueue conn {:id id
+                                         :timestamp ts
+                                         :encrypted? true
+                                         :type type
+                                         :data encrypted-data})))
+
+        (enqueue conn {:id id
+                       :timestamp ts
+                       :encrypted? (boolean encrypted?)
+                       :type type
+                       :data data}))))
 
 (defn add-to-failed [msg]
   (fn [messenger]
@@ -62,6 +73,7 @@
     (send {:conn forward-to-conn
            :from conn
            :type (:type msg)
+           :encrypted? (:encrypted? msg)
            :data (:data msg)})))
 
 (defn route [conn msg]
@@ -77,7 +89,6 @@
      (if (= ::ack (:type msg))
        (swap! conn update :msgs dissoc (:id (:data msg)))
        (when-not (contains? @received-msgs (:id msg))
-
          (route conn msg)
          (send {:conn conn
                 :type ::ack
@@ -88,9 +99,9 @@
            (swap! received-msgs disj (:id msg))))))
    conn))
 
-(defn create-conn [{:keys [to from tab-id send-fn receive-fn base-retry-timeout base-received-timeout routes]}]
+(defn create-conn [{:keys [id to from tab-id send-fn receive-fn base-retry-timeout base-received-timeout routes]}]
   (let [conn (atom {:msgs {}
-                    :id (nano-id)
+                    :id (or id (nano-id))
                     :routes (or routes {})
                     :send-queue (chan 1000)
                     :base-retry-timeout (or base-retry-timeout 1000)
