@@ -46,7 +46,7 @@
                                               :datalog-console.client/init!
                                               (fn [msg-conn msg]
                                                 (when-not (:confirmed @connection)
-                                                  (let [user-confirmation (js/confirm (str "Datalog Console is trying to connect. Please ensure confirmation code is the same you see in console: " (:confirmation-code (:data msg))))]
+                                                  (let [user-confirmation (js/confirm (str "Datalog Console has requested a connection to this tab. Please ensure confirmation code is the same you see in console: " (:confirmation-code (:data msg))))]
                                                     (cond
                                                       (= user-confirmation true) (swap! connection assoc :confirmed true :connected-at (js/Date.))
                                                       (<= (:attempts @connection) 3) (swap! connection update-in [:attempts] inc)
