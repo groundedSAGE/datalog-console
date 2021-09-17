@@ -25,21 +25,23 @@
   "Takes a [datascript](https://github.com/tonsky/datascript) database connection atom. Adds message handlers for a remote datalog-console process to communicate with. E.g. the datalog-console browser [extension](https://chrome.google.com/webstore/detail/datalog-console/cfgbajnnabfanfdkhpdhndegpmepnlmb?hl=en)."
   [{db-conn :conn
     disable-write? :disable-write?
-    secure? :secure?}] ;do something with the secure? flag
+    secure? :secure?}]
   (try
     (js/document.documentElement.setAttribute "__datalog-console-remote-installed__" true)
     (let [msg-conn (msg/create-conn {:to js/window
-                                     :encryption (atom {:key aes-key
-                                                        :algo crypto/aes-key-algo})
                                      :routes {:datalog-console.background/secure-connection
                                               (fn [msg-conn msg]
-                                                (crypto/key-swap {:received-key (:initial-key (:data msg))
-                                                                  :wrap-settings {:format "jwk"
-                                                                                  :key @aes-key
-                                                                                  :wrapAlgo (clj->js crypto/rsa-key-algo)}}
-                                                                 #(msg/send {:conn msg-conn
-                                                                             :type :datalog-console.remote/secure-connection
-                                                                             :data {:wrapped-key (crypto/buff->base64 %)}})))
+                                                (if-let [initial-key (:initial-key (:data msg))]
+                                                  (crypto/key-swap {:received-key initial-key
+                                                                    :wrap-settings {:format "jwk"
+                                                                                    :key @aes-key
+                                                                                    :wrapAlgo (clj->js crypto/rsa-key-algo)}}
+                                                                   #(msg/send {:conn msg-conn
+                                                                               :type :datalog-console.remote/secure-connection
+                                                                               :data {:wrapped-key (crypto/buff->base64 %)}}))
+                                                  (msg/send {:conn msg-conn
+                                                             :type :datalog-console.remote/secure-connection
+                                                             :data {:secure? secure?}})))
 
                                               :datalog-console.client/init!
                                               (fn [msg-conn msg]
@@ -49,19 +51,20 @@
                                                       (= user-confirmation true) (swap! connection assoc :confirmed true :connected-at (js/Date.))
                                                       (<= (:attempts @connection) 3) (swap! connection update-in [:attempts] inc)
                                                       :else (js/alert "Too many attempts made to safely connect Datalog Console to this tab."))))
-                                                (when (:confirmed @connection)
-                                                  (msg/send {:conn msg-conn
-                                                             :type :datalog-console.remote/init-config
-                                                             :data {:integration-version dc/version
-                                                                    :disable-write? disable-write?}})))
+                                                (msg/send {:conn msg-conn
+                                                           :type :datalog-console.remote/init-config
+                                                           :data {:integration-version dc/version
+                                                                  :disable-write? disable-write?
+                                                                  :secure? secure?}}))
 
                                               :datalog-console.client/request-whole-database-as-string
                                               (fn [msg-conn _msg]
                                                 (msg/send {:conn msg-conn
                                                            :type :datalog-console.remote/db-as-string
                                                            :data (pr-str @db-conn)
-                                                           :encryption {:key @aes-key
-                                                                        :algorithm crypto/aes-key-algo}}))
+                                                           :encryption (when secure?
+                                                                         {:key @aes-key
+                                                                          :algorithm crypto/aes-key-algo})}))
 
                                               :datalog-console.client/transact!
                                               (fn [msg-conn msg]
@@ -70,10 +73,17 @@
                                                     (when (:error transact-result)
                                                       (msg/send {:conn msg-conn
                                                                  :type :datalog-console.client.response/transact!
-                                                                 :data transact-result})))))}
+                                                                 :data transact-result
+                                                                 :encryption (when secure?
+                                                                               {:key @aes-key
+                                                                                :algorithm crypto/aes-key-algo})})))))}
                                      :send-fn (fn [{:keys [to conn msg]}]
-                                                (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
-                                                                           :conn-id (:id @conn)})))
+                                                (when (or (:confirmed @connection)
+                                                          (= :datalog-console.remote/secure-connection (:type msg))
+                                                          (= ::msg/ack (:type msg))
+                                                          (not secure?))
+                                                  (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
+                                                                             :conn-id (:id @conn)}))))
                                      :receive-fn (fn [cb msg-conn]
                                                    (.addEventListener (:to @msg-conn) "message"
                                                                       (fn [event]
@@ -91,7 +101,10 @@
                            (let [tx-data (:tx-data x)]
                              (msg/send {:conn msg-conn
                                         :type :datalog-console.client.response/tx-data
-                                        :data (pr-str tx-data)})))))
+                                        :data (pr-str tx-data)
+                                        :encryption (when secure?
+                                                      {:key @aes-key
+                                                       :algorithm crypto/aes-key-algo})})))))
 
 
     (catch js/Error _e nil)))

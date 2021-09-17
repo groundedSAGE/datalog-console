@@ -48,13 +48,24 @@
                        :tab-id tab-id
                        :routes {:datalog-console.remote/secure-connection
                                 (fn [conn msg]
+                                  
+                                  ;; Send public key to the integration
+                                  (when (:secure? (:data msg))
+                                    (crypto/export {:format "jwk"
+                                                    :key (:public @keypair)}
+                                                   (fn [exported-key]
+                                                     (msg/send {:conn (get-in @port-conns [:remote @(:tab-id @conn)])
+                                                                :type :datalog-console.background/secure-connection
+                                                                :data {:initial-key exported-key}}))))
+                                  
+                                  ;; Receive AES key from integration
                                   (when-let [encrypted-key (:wrapped-key (:data msg))]
                                     (crypto/unwrapKey {:format "jwk"
                                                        :wrappedKey (crypto/base64->buff encrypted-key)
                                                        :unwrappingKey (:private @keypair)
                                                        :unwrapAlgo (clj->js crypto/rsa-key-algo)
                                                        :unwrappedKeyAlgo (clj->js crypto/aes-key-algo)
-                                                       :extractable true 
+                                                       :extractable true
                                                        :keyUsages ["encrypt" "decrypt"]}
                                                       (fn [key]
                                                         (swap! key-manager assoc @(:tab-id @conn) key)))))
@@ -75,14 +86,9 @@
                                                                              :encryption {:key (get @key-manager tab-id)
                                                                                           :algorithm crypto/aes-key-algo}})))
                                 :datalog-console.remote/db-detected (fn [conn _msg]
-                                                                      (crypto/export {:format "jwk"
-                                                                                      :key (:public @keypair)}
-                                                                                     (fn [exported-key]
-                                                                                       (msg/send {:conn (get-in @port-conns [:remote @(:tab-id @conn)])
-                                                                                                  :type :datalog-console.background/secure-connection
-                                                                                                  :data {:initial-key exported-key}})
-                                                                                       #(js/console.log "this is the export one: "
-                                                                                                        (crypto/import-jwk exported-key (fn [x] (js/console.log x))))))
+                                                                     (msg/send {:conn (get-in @port-conns [:remote @(:tab-id @conn)])
+                                                                                :type :datalog-console.background/secure-connection
+                                                                                :data {}})
                                                                       (set-icon-and-popup @(:tab-id @conn)))
                                 :* (fn [conn msg]
                                      (let [env-context (if (gobj/getValueByKeys (:to @conn) "sender" "tab" "id") :tools :remote)
@@ -102,10 +108,10 @@
                                                                            :algorithm crypto/aes-key-algo
                                                                            :data (:data parsed-msg)}
                                                                           #(do 
-                                                                             (js/console.log "this is the data: " (type %))
+                                                                             (js/console.log "this is the data: " %)
                                                                              (cb (assoc parsed-msg :data %))))
                                                           (cb parsed-msg))
-                                                        #_(js/console.log "raw msg: " raw-msg)
+                                                        (js/console.log "raw msg: " raw-msg)
                                                         #_(cb (cljs.reader/read-string raw-msg))))]
                                        (.addListener (gobj/get port "onMessage") listener)
                                        (.addListener (gobj/get port "onDisconnect")
