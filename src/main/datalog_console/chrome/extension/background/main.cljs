@@ -28,11 +28,14 @@
 ;;;;;;;;;;;;
 
 (defonce security-codes (atom {}))
+(defonce key-manager (atom {}))
 
 (defn random-code []
   (let [numbers (take 6 (repeatedly #(rand-int 10)))
         parts (map str/join (partition 3 numbers))]
      (str (first parts) " - " (second parts))))
+
+(defonce code (random-code))
 
 (defonce keypair (crypto/generate-key))
 
@@ -48,7 +51,6 @@
                        :routes {:datalog-console.remote/secure-connection
                                 (fn [conn msg]
                                   (when-let [encrypted-key (:wrapped-key (:data msg))]
-                                    (js/console.log "securing connection: " encrypted-key)
                                     (crypto/unwrapKey {:format "jwk"
                                                        :wrappedKey (crypto/base64->buff encrypted-key)
                                                        :unwrappingKey (:private @keypair)
@@ -56,15 +58,13 @@
                                                        :unwrappedKeyAlgo (clj->js crypto/aes-key-algo)
                                                        :extractable true 
                                                        :keyUsages ["encrypt" "decrypt"]}
-                                                      #(js/console.log "the unwrapped: " %))))
+                                                      (fn [key]
+                                                        (swap! key-manager assoc @(:tab-id @conn) key)))))
 
                                 :datalog-console.client/init! (fn [conn msg]
                                                                 (swap! port-conns assoc-in [:tools @(:tab-id @conn)] conn)
                                                                 (let [to (get-in @port-conns [:remote @(:tab-id @conn)])]
-                                                                  ((msg/forward to) conn msg))
-                                                                (msg/send {:conn conn
-                                                                           :type :datalog-console.background/confirmation-code
-                                                                           :data (random-code)}))
+                                                                  ((msg/forward to) conn (assoc-in msg [:data :confirmation-code] code))))
                                 :datalog-console.remote/db-detected (fn [conn _msg]
                                                                       (js/console.log "db-deteced")
                                                                       (crypto/export {:format "jwk"

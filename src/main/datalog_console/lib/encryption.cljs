@@ -95,7 +95,6 @@
       (.catch #(js/console.log %))))
 
 (defn unwrapKey [{:keys [format wrappedKey unwrappingKey unwrapAlgo unwrappedKeyAlgo extractable keyUsages]} cb]
-  (js/console.log "unwrapping")
   (-> (.unwrapKey js/crypto.subtle
                   format
                   wrappedKey

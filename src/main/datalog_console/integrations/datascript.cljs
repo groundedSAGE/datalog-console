@@ -7,14 +7,13 @@
             [datalog-console.lib.messaging :as msg]))
 
 ;; Security
-(defonce confirmation-code (atom nil))
+(defonce connection (atom {:confirmed false
+                           :attempts 0
+                           :connected-at nil}))
+
 (defonce keypair (crypto/generate-key))
 (defonce aes-key (crypto/generate-aes-key))
 
-(def exported-key-atom (atom nil))
-
-
-(defonce initial-public-key (atom nil))
 
 
 (defn transact-from-devtool! [db-conn transact-str]
@@ -33,15 +32,6 @@
                                      :routes {:datalog-console.background/secure-connection
                                               (fn [msg-conn msg]
                                                 (let [send-wrapped (fn [wrapped-key]
-                                                                    ;;  (js/console.log "wrapped-key: " (crypto/ab2str wrapped-key))
-                                                                     #_(crypto/unwrapKey {:format "jwk"
-                                                                                        :wrappedKey wrapped-key
-                                                                                        :unwrappingKey (:private @keypair)
-                                                                                        :unwrapAlgo (clj->js crypto/rsa-key-algo)
-                                                                                        :unwrappedKeyAlgo (clj->js crypto/aes-key-algo)
-                                                                                        :extractable true
-                                                                                        :keyUsages ["encrypt" "decrypt"]}
-                                                                                       #(js/console.log "the unwrapped: " %))
                                                                      (msg/send {:conn msg-conn
                                                                                 :type :datalog-console.remote/secure-connection
                                                                                 :data {:wrapped-key (crypto/buff->base64 wrapped-key)}}))
@@ -55,12 +45,17 @@
 
                                               :datalog-console.client/init!
                                               (fn [msg-conn msg]
-                                                #_(when-not @confirmation-code
-                                                    #_(reset! confirmation-code (js/prompt "Please enter confirmation code")))
-                                                (msg/send {:conn msg-conn
-                                                           :type :datalog-console.remote/init-config
-                                                           :data {:integration-version dc/version
-                                                                  :disable-write? disable-write?}}))
+                                                (when-not (:confirmed @connection)
+                                                  (let [user-confirmation (js/confirm (str "Datalog Console is trying to connect. Please ensure confirmation code is the same you see in console: " (:confirmation-code (:data msg))))]
+                                                    (cond
+                                                      (= user-confirmation true) (swap! connection assoc :confirmed true :connected-at (js/Date.))
+                                                      (<= (:attempts @connection) 3) (swap! connection update-in [:attempts] inc)
+                                                      :else (js/alert "Too many attempts made to safely connect Datalog Console to this tab."))))
+                                                (when (:confirmed @connection)
+                                                  (msg/send {:conn msg-conn
+                                                             :type :datalog-console.remote/init-config
+                                                             :data {:integration-version dc/version
+                                                                    :disable-write? disable-write?}})))
 
                                               :datalog-console.client/request-whole-database-as-string
                                               (fn [msg-conn _msg]
