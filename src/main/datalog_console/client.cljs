@@ -21,7 +21,7 @@
 (def r-error (r/atom nil))
 (def entity-lookup-ratom (r/atom ""))
 (def remote-config (r/atom {}))
-(def security-code (r/atom {}))
+
 
 
 ;; Security

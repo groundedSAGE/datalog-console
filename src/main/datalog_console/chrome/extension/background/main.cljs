@@ -58,7 +58,7 @@
                                                                 :type :datalog-console.background/secure-connection
                                                                 :data {:initial-key exported-key}}))))
                                   
-                                  ;; Receive AES key from integration
+                                  ;; Receive wrapped AES key from integration
                                   (when-let [encrypted-key (:wrapped-key (:data msg))]
                                     (crypto/unwrapKey {:format "jwk"
                                                        :wrappedKey (crypto/base64->buff encrypted-key)
@@ -107,12 +107,8 @@
                                                           (crypto/decrypt {:key (get @key-manager @(:tab-id @conn))
                                                                            :algorithm crypto/aes-key-algo
                                                                            :data (:data parsed-msg)}
-                                                                          #(do 
-                                                                             (js/console.log "this is the data: " %)
-                                                                             (cb (assoc parsed-msg :data %))))
-                                                          (cb parsed-msg))
-                                                        (js/console.log "raw msg: " raw-msg)
-                                                        #_(cb (cljs.reader/read-string raw-msg))))]
+                                                                          #(cb (assoc parsed-msg :data %)))
+                                                          (cb parsed-msg))))]
                                        (.addListener (gobj/get port "onMessage") listener)
                                        (.addListener (gobj/get port "onDisconnect")
                                                      (fn [port]
