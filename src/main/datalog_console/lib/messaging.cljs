@@ -20,6 +20,7 @@
     (let [ts (js/Date.now)
           id (nano-id)]
       (if encryption
+        ;; Could encrypt the type and data as :encrypted-msg. Though would have to also have a check for if it's an ack type
         (crypto/encrypt (assoc encryption :data data)
                         (fn [encrypted-data]
                           (enqueue conn {:id id
