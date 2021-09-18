@@ -48,7 +48,6 @@
                        :tab-id tab-id
                        :routes {:datalog-console.remote/secure-connection
                                 (fn [conn msg]
-                                  
                                   ;; Send public key to the integration
                                   (when (:secure? (:data msg))
                                     (crypto/export {:format "jwk"
@@ -57,7 +56,6 @@
                                                      (msg/send {:conn (get-in @port-conns [:remote @(:tab-id @conn)])
                                                                 :type :datalog-console.background/secure-connection
                                                                 :data {:initial-key exported-key}}))))
-                                  
                                   ;; Receive wrapped AES key from integration
                                   (when-let [encrypted-key (:wrapped-key (:data msg))]
                                     (crypto/unwrapKey {:format "jwk"
@@ -70,26 +68,27 @@
                                                       (fn [key]
                                                         (swap! key-manager assoc @(:tab-id @conn) key)))))
 
-                                :datalog-console.client/init! (fn [conn msg]
-                                                                (let [tab-id @(:tab-id @conn)]
-                                                                  (swap! port-conns assoc-in [:tools tab-id] conn)
-
-                                                                  ;; Send confirmation code to devtool
-                                                                  (msg/send {:conn (get-in @port-conns [:tools tab-id])
-                                                                             :type :datalog-console.background/confirmation-code
-                                                                             :data code})
-
-                                                                  ;; Forward message to application
-                                                                  (msg/send {:conn (get-in @port-conns [:remote tab-id])
-                                                                             :type (:type msg)
-                                                                             :data {:confirmation-code code}
-                                                                             :encryption {:key (get @key-manager tab-id)
-                                                                                          :algorithm crypto/aes-key-algo}})))
-                                :datalog-console.remote/db-detected (fn [conn _msg]
-                                                                     (msg/send {:conn (get-in @port-conns [:remote @(:tab-id @conn)])
-                                                                                :type :datalog-console.background/secure-connection
-                                                                                :data {}})
-                                                                      (set-icon-and-popup @(:tab-id @conn)))
+                                :datalog-console.client/init!
+                                (fn [conn msg]
+                                  (let [tab-id @(:tab-id @conn)]
+                                    (swap! port-conns assoc-in [:tools tab-id] conn)
+                                    ;; Send confirmation code to devtool
+                                    (msg/send {:conn (get-in @port-conns [:tools tab-id])
+                                               :type :datalog-console.background/confirmation-code
+                                               :data code})
+                                    ;; Forward message to application
+                                    (msg/send {:conn (get-in @port-conns [:remote tab-id])
+                                               :type (:type msg)
+                                               :data {:confirmation-code code}
+                                               :encryption {:key (get @key-manager tab-id)
+                                                            :algorithm crypto/aes-key-algo}})))
+                                
+                                :datalog-console.remote/db-detected
+                                (fn [conn _msg]
+                                  (msg/send {:conn (get-in @port-conns [:remote @(:tab-id @conn)])
+                                             :type :datalog-console.background/secure-connection
+                                             :data {}})
+                                  (set-icon-and-popup @(:tab-id @conn)))
                                 :* (fn [conn msg]
                                      (let [env-context (if (gobj/getValueByKeys (:to @conn) "sender" "tab" "id") :tools :remote)
                                            to (get-in @port-conns [env-context @(:tab-id @conn)])]
