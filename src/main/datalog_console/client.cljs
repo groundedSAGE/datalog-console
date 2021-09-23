@@ -143,20 +143,21 @@
        [:div {:class "absolute top-2 right-1 flex items-center"}
         [:p {:class "px-2"}
          [:b
-          (if (:status @user-confirmation)
+          (if (and (:status @user-confirmation) (not= :failed (:status @user-confirmation)))
             (:code @user-confirmation)
             "Failed to connect")]]
-        (if-not (:status @user-confirmation)
-          [:button
-           {:class "py-1 px-2 rounded bg-gray-200 border"
-            :on-click (fn []
-                        (msg/send {:conn background-conn
-                                   :type :datalog-console.client/init!}))}
-           "Retry connection"]
-          [:button
-           {:class "py-1 px-2 rounded bg-gray-200 border"
-            :on-click (fn []
-                        (when-not @loaded-db? (reset! loaded-db? true))
-                        (msg/send {:conn background-conn
-                                   :type :datalog-console.client/request-whole-database-as-string}))}
-           (if @loaded-db? "Refresh database" "Load database")])]])))
+        (when-not (= :failed (:status @user-confirmation))
+          (if-not (:status @user-confirmation)
+            [:button
+             {:class "py-1 px-2 rounded bg-gray-200 border"
+              :on-click (fn []
+                          (msg/send {:conn background-conn
+                                     :type :datalog-console.client/init!}))}
+             "Retry connection"]
+            [:button
+             {:class "py-1 px-2 rounded bg-gray-200 border"
+              :on-click (fn []
+                          (when-not @loaded-db? (reset! loaded-db? true))
+                          (msg/send {:conn background-conn
+                                     :type :datalog-console.client/request-whole-database-as-string}))}
+             (if @loaded-db? "Refresh database" "Load database")]))]])))

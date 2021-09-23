@@ -53,21 +53,22 @@
 
                                                     ;; User confirmation for secure connection
                                                     (:confirmation-code msg-data)
-                                                    (when-not (:confirmed @connection)
+                                                    (when (and (not (:confirmed @connection)) (< (:attempts @connection) 3))
                                                       (let [user-confirmation (js/confirm (str "Datalog Console has requested a connection to this tab. Please ensure confirmation code is the same you see in console: " (:confirmation-code (:data msg))))]
-                                                        (js/console.log "user confirmation: " user-confirmation)
+                                                        (swap! connection update-in [:attempts] inc)
                                                         (msg/send {:conn msg-conn
                                                                    :type :datalog-console.extension/integration-handshake!
                                                                    :data {:user-confirmation user-confirmation}})
                                                         (cond
-                                                          (= user-confirmation true) 
+                                                          user-confirmation
                                                           (swap! connection assoc :confirmed true :connected-at (js/Date.))
 
-                                                          (<= (:attempts @connection) 3) 
-                                                          (swap! connection update-in [:attempts] inc)
-                                                          
-                                                          :else 
-                                                          (js/alert "Too many attempts made to safely connect Datalog Console to this tab.")))))))
+                                                          (>= (:attempts @connection) 3)
+                                                          (do 
+                                                            (msg/send {:conn msg-conn
+                                                                       :type :datalog-console.extension/integration-handshake!
+                                                                       :data {:user-confirmation :failed}})
+                                                            (js/alert "Too many attempts made to safely connect Datalog Console to this tab."))))))))
 
                                               :datalog-console.client/init!
                                               (fn [msg-conn msg]
