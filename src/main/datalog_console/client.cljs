@@ -69,6 +69,7 @@
                                                        (.addListener (gobj/get (:to @msg-conn) "onMessage")
                                                                      (fn [msg]
                                                                        (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
+                                                                         (js/console.log "this is the raw-msg: " raw-msg)
                                                                          (cb (cljs.reader/read-string raw-msg))))))}))
 
   (msg/send {:conn background-conn

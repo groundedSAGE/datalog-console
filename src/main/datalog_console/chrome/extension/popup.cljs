@@ -6,31 +6,37 @@
             [goog.object :as gobj]
             [cljs.reader]))
 
+(defonce counter (r/atom 1))
+(defonce status (r/atom {:current-tab nil}))
+
+(defonce conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.remote/extension-popup"})
+                                :routes {:datalog-console.background/status-update
+                                         (fn [_conn msg]
+                                           (swap! counter inc)
+                                           (js/console.log "made it to status update: " (:current-tab (:data msg)))
+                                           (swap! status assoc :current-tab (:current-tab (:data msg))))}
+                                :send-fn (fn [{:keys [to msg]}]
+                                           (.postMessage to
+                                                         (clj->js {(str ::msg/msg) (pr-str msg)})))
+                                :receive-fn (fn [cb conn]
+                                              (.addListener (gobj/get (:to @conn) "onMessage")
+                                                            (fn [msg]
+                                                              (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
+                                                                (js/console.log "this is raw msg: " raw-msg)
+                                                                (cb (cljs.reader/read-string raw-msg))))))}))
+
+
+
+
+
 
 (defn root []
-  (let [counter (r/atom 1)]
-    (fn []
-      (let [conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.remote/extension-popup"})
-                                   :send-fn (fn [{:keys [to msg]}]
-                                              (.postMessage to
-                                                            (clj->js {(str ::msg/msg) (pr-str msg)})))
-                                   :receive-fn (fn [cb conn]
-                                                 (.addListener (gobj/get (:to @conn) "onMessage")
-                                                               (fn [msg]
-                                                                 (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
-                                                                   (js/console.log "this is raw msg: " raw-msg)
-                                                                   (cb (cljs.reader/read-string raw-msg))))))})]
-
-        [:div
-         [:span "The counter" @counter]
-         [:button {:on-click (fn []
-                               (swap! counter inc)
-                               (js/console.log "the tab: " js/tabs.Tab)
-                               (msg/send {:conn conn
-                                          :type :datalog-console.popup
-                                          :data true})
-                               (js/console.log "the conn" conn))}
-          "Increment"]]))))
+  (fn []
+    [:div {:class "flex flex-col"}
+     [:span "Current tab id: " [:b (:current-tab @status)]]
+     [:button {:on-click #(msg/send {:conn conn
+                                     :type :datalog-console/init-handshake!})}
+      "Connect"]]))
 
 
 (defn mount! []
