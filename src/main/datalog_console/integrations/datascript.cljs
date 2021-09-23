@@ -31,37 +31,52 @@
     (let [msg-conn (msg/create-conn {:to js/window
                                      :routes {:datalog-console.extension/integration-handshake!
                                               (fn [msg-conn msg]
-                                                (if-not (:init-key (:data msg))
+                                                (let [msg-data (:data msg)]
+                                                  (cond
 
-                                                  ;; Send the init-config for handshake
-                                                  (msg/send {:conn msg-conn
-                                                             :type :datalog-console.extension/integration-handshake!
-                                                             :data {:init-config {:integration-version dc/version
-                                                                                  :secure? secure?}}})
+                                                    ;; Send the init-config for handshake
+                                                    (= :request-handshake msg-data)
+                                                    (msg/send {:conn msg-conn
+                                                               :type :datalog-console.extension/integration-handshake!
+                                                               :data {:init-config {:integration-version dc/version
+                                                                                    :secure? secure?}}})
 
-                                                  ;; Send the wrapped AES key
-                                                  (crypto/key-swap {:received-key (:init-key (:data msg))
-                                                                    :wrap-settings {:format "jwk"
-                                                                                    :key @aes-key
-                                                                                    :wrapAlgo (clj->js crypto/rsa-key-algo)}}
-                                                                   #(msg/send {:conn msg-conn
-                                                                               :type :datalog-console.extension/integration-handshake!
-                                                                               :data {:wrapped-key (crypto/buff->base64 %)}}))))
+                                                    ;; Send the wrapped AES key
+                                                    (:init-key msg-data)
+                                                    (crypto/key-swap {:received-key (:init-key msg-data)
+                                                                      :wrap-settings {:format "jwk"
+                                                                                      :key @aes-key
+                                                                                      :wrapAlgo (clj->js crypto/rsa-key-algo)}}
+                                                                     #(msg/send {:conn msg-conn
+                                                                                 :type :datalog-console.extension/integration-handshake!
+                                                                                 :data {:wrapped-key (crypto/buff->base64 %)}}))
+
+                                                    ;; User confirmation for secure connection
+                                                    (:confirmation-code msg-data)
+                                                    (when-not (:confirmed @connection)
+                                                      (let [user-confirmation (js/confirm (str "Datalog Console has requested a connection to this tab. Please ensure confirmation code is the same you see in console: " (:confirmation-code (:data msg))))]
+                                                        (js/console.log "user confirmation: " user-confirmation)
+                                                        (msg/send {:conn msg-conn
+                                                                   :type :datalog-console.extension/integration-handshake!
+                                                                   :data {:user-confirmation user-confirmation}})
+                                                        (cond
+                                                          (= user-confirmation true) 
+                                                          (swap! connection assoc :confirmed true :connected-at (js/Date.))
+
+                                                          (<= (:attempts @connection) 3) 
+                                                          (swap! connection update-in [:attempts] inc)
+                                                          
+                                                          :else 
+                                                          (js/alert "Too many attempts made to safely connect Datalog Console to this tab.")))))))
 
                                               :datalog-console.client/init!
                                               (fn [msg-conn msg]
-                                                (when-not (:confirmed @connection)
-                                                  (let [user-confirmation (js/confirm (str "Datalog Console has requested a connection to this tab. Please ensure confirmation code is the same you see in console: " (:confirmation-code (:data msg))))]
-                                                    (cond
-                                                      (= user-confirmation true) (swap! connection assoc :confirmed true :connected-at (js/Date.))
-                                                      (<= (:attempts @connection) 3) (swap! connection update-in [:attempts] inc)
-                                                      :else (js/alert "Too many attempts made to safely connect Datalog Console to this tab."))))
                                                 (msg/send {:conn msg-conn
                                                            :type :datalog-console.remote/init-config
                                                            :data {:integration-version dc/version
                                                                   :disable-write? disable-write?
                                                                   :secure? secure?}}))
-                                              
+
 
                                               :datalog-console.client/request-whole-database-as-string
                                               (fn [msg-conn _msg]
@@ -87,9 +102,10 @@
                                                 (when (or (:confirmed @connection)
                                                           (= :datalog-console.extension/integration-handshake! (:type msg))
                                                           (= ::msg/ack (:type msg))
-                                                          (not secure?)))
-                                                (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
-                                                                           :conn-id (:id @conn)})))
+                                                          (not secure?))
+                                                  (js/console.log "sending from integration: " msg)
+                                                  (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
+                                                                             :conn-id (:id @conn)}))))
                                      :receive-fn (fn [cb msg-conn]
                                                    (.addEventListener (:to @msg-conn) "message"
                                                                       (fn [event]

@@ -14,8 +14,7 @@
             [datalog-console.lib.messaging :as msg]
             [datalog-console.components.feature-flag :as feature-flag]
             [homebase.reagent :as hbr]
-            [cljs.reader]
-            ["crypto-js" :as crypto]))
+            [cljs.reader]))
 
 (def r-db-conn (r/atom nil))
 (def r-error (r/atom nil))
@@ -26,20 +25,24 @@
 
 ;; Security
 
-(defn encrypt [msg secret]
-  (.toString (.encrypt (.-AES crypto) msg secret)))
-
-(defn decrypt [msg secret]
-  (.toString (.decrypt (.-AES crypto) msg secret) (.-Utf8 (.-enc crypto))))
-
-(def confirmation-code (r/atom nil))
+(def user-confirmation (r/atom {:status true
+                                :code nil}))
 
 (try
   ;; Inside of a try for cases when there is no browser environment
   (def background-conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.client/devtool-port"})
-                                         :routes {:datalog-console.background/confirmation-code
+                                         :routes {:datalog-console.extension/integration-handshake!
                                                   (fn [_msg-conn msg]
-                                                    (reset! confirmation-code (:data msg)))
+                                                    (let [msg-data (:data msg)]
+                                                      (cond
+                                                        (:confirmation-code msg-data)
+                                                        (swap! user-confirmation assoc :code (:confirmation-code msg-data))
+
+                                                        (contains? msg-data :user-confirmation)
+                                                        (do
+                                                          (js/console.log "this is the user confirmation" (:user-confirmation msg-data))
+                                                          (swap! user-confirmation assoc :status (:user-confirmation msg-data))
+                                                          (js/console.log @user-confirmation)))))
 
                                                   :datalog-console.remote/init-config
                                                   (fn [_msg-conn msg]
@@ -138,12 +141,22 @@
            [c.entities/entities @r-db-conn entity-lookup-ratom]])]
        [tabs r-db-conn entity-lookup-ratom]
        [:div {:class "absolute top-2 right-1 flex items-center"}
-        [:p {:class "px-2"} [:b @confirmation-code]]
-        [:button
-         {:class "py-1 px-2 rounded bg-gray-200 border"
-          :on-click (fn []
-                      (when-not @loaded-db? (reset! loaded-db? true))
-                      (js/console.log "the confirmation code: " (type confirmation-code))
-                      (msg/send {:conn background-conn
-                                 :type :datalog-console.client/request-whole-database-as-string}))}
-         (if @loaded-db? "Refresh database" "Load database")]]])))
+        [:p {:class "px-2"}
+         [:b
+          (if (:status @user-confirmation)
+            (:code @user-confirmation)
+            "Failed to connect")]]
+        (if-not (:status @user-confirmation)
+          [:button
+           {:class "py-1 px-2 rounded bg-gray-200 border"
+            :on-click (fn []
+                        (msg/send {:conn background-conn
+                                   :type :datalog-console.client/init!}))}
+           "Retry connection"]
+          [:button
+           {:class "py-1 px-2 rounded bg-gray-200 border"
+            :on-click (fn []
+                        (when-not @loaded-db? (reset! loaded-db? true))
+                        (msg/send {:conn background-conn
+                                   :type :datalog-console.client/request-whole-database-as-string}))}
+           (if @loaded-db? "Refresh database" "Load database")])]])))
