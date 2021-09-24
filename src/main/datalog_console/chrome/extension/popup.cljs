@@ -67,7 +67,7 @@
 
 (defn console-connections []
   [:div {:class "px-4 flex flex-col"}
-   [:p (str @status)]
+   #_[:p (str @status)]
    [:p {:class "border-b text-xl flex justify-between"}
     [:span "Tab Id:"]
     [:b (:current-tab-id @status)]]

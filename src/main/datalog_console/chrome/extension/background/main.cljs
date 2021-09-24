@@ -64,8 +64,8 @@
       (recur))))
 
 (defn start-secure-integration-handshake! [tab-id]
-  (js/console.log "start secure called for: " tab-id )
-  (when-not (get-in @integration-configs [tab-id :handshake])
+  (when-not (or (get-in @integration-configs [tab-id :handshake])
+                (= true (get-in @integration-configs [tab-id :user-confirmation])))
     (js/console.log "first handshake for: " tab-id)
     (let [get-port (fn [context] (get-in @port-conns [context tab-id]))]
       (swap! integration-configs assoc-in [tab-id :handshake] (chan))
@@ -73,18 +73,24 @@
       (go
         (let [handshake-key-ch (get-in @integration-configs [tab-id :handshake])]
           (when (:secure? (get @integration-configs tab-id))
+            
+            (swap! integration-configs assoc-in [tab-id :user-confirmation] :waiting)
+            (swap! integration-configs assoc-in [tab-id :confirmation-code] code)
+            
 
           ;; Send confirmation code to devtool
             (when-let [tools-conn (get-port :tools)]
               (msg/send {:conn tools-conn
                          :type :datalog-console.extension/secure-integration-handshake!
-                         :data {:confirmation-code code}}))
+                         :data {:confirmation-code code
+                                :user-confirmation :waiting}}))
 
            ;; Send confirmation code to popup
             (when-let [popup-conn (get-port :popup)]
               (msg/send {:conn popup-conn
                          :type :datalog-console.extension/secure-integration-handshake!
-                         :data {:confirmation-code code}}))
+                         :data {:confirmation-code code
+                                :user-confirmation :waiting}}))
 
           ;; Send confirmation code to application
             (msg/send {:conn (get-port :remote)
@@ -130,11 +136,14 @@
                               :datalog-console.popup/init!
                               (fn [conn msg]
                                 (swap! port-conns assoc-in [:popup @(:tab-id @conn)] conn)
+                                (js/console.log "integration configs: " @integration-configs)
+                                (js/console.log "integration configs data: " (get @integration-configs @(:tab-id @conn)))
                                 (msg/send {:conn conn
                                            :type :datalog-console.popup/init-response!
                                            :data (into {:tools (keys (:tools @port-conns))
                                                         :remote (keys (:remote @port-conns))}
-                                                       (get @integration-configs @(:tab-id @conn)))}))
+                                                       (dissoc (get @integration-configs @(:tab-id @conn))
+                                                               :handshake))}))
                               
                               
 
