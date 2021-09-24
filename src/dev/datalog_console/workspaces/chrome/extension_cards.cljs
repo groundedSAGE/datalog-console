@@ -11,7 +11,7 @@
 ;;             :salt "salt added by the application developer"}}
 
 (integrations/enable! {:db-conn conn
-                       :secure? false
+                       :secure? true
                        :disable-write? false})
 
 (defn element [name props & children]

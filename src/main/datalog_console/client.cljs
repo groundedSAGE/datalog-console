@@ -35,7 +35,7 @@
                                                   (fn [_msg-conn msg]
                                                     (reset! remote-config (:data msg)))
 
-                                                  :datalog-console.extension/integration-handshake!
+                                                  :datalog-console.extension/secure-integration-handshake!
                                                   (fn [_msg-conn msg]
                                                     (let [msg-data (:data msg)]
                                                       (cond
