@@ -10,8 +10,8 @@
 ;; {:security {:level [none medium high]
 ;;             :salt "salt added by the application developer"}}
 
-(integrations/enable! {:conn conn
-                       :secure? true
+(integrations/enable! {:db-conn conn
+                       :secure? false
                        :disable-write? false})
 
 (defn element [name props & children]

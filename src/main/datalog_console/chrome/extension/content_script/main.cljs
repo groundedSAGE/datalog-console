@@ -33,27 +33,3 @@
                                                       (fn [msg]
                                                         (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
                                                           (cb (cljs.reader/read-string raw-msg))))))}))
-
-(def db-detected? (atom false))
-
-(defn supports-datalog-console? []
-  (js/document.documentElement.getAttribute "__datalog-console-remote-installed__"))
-
-(defn detect-db! []
-  (js/console.log "calling detect-db!")
-  (when-not @db-detected?
-    (when (supports-datalog-console?)
-      (reset! db-detected? true)
-      (msg/send {:conn @background-conn
-                 :type :datalog-console.remote/db-detected
-                 :data true}))))
-
-(defn init-detector!
-  "Attempts to detect if the datalog console is supported in the current tab multiple times before giving up."
-  []
-  (detect-db!)
-  (js/setTimeout detect-db! 1000)
-  (js/setTimeout detect-db! 3000)
-  (js/setTimeout detect-db! 10000))
-
-(init-detector!)

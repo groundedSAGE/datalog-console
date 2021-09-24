@@ -31,7 +31,11 @@
 (try
   ;; Inside of a try for cases when there is no browser environment
   (def background-conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.client/devtool-port"})
-                                         :routes {:datalog-console.extension/integration-handshake!
+                                         :routes {:datalog-console.client/init-response
+                                                  (fn [_msg-conn msg]
+                                                    (reset! remote-config (:data msg)))
+
+                                                  :datalog-console.extension/integration-handshake!
                                                   (fn [_msg-conn msg]
                                                     (let [msg-data (:data msg)]
                                                       (cond
@@ -43,10 +47,6 @@
                                                           (js/console.log "this is the user confirmation" (:user-confirmation msg-data))
                                                           (swap! user-confirmation assoc :status (:user-confirmation msg-data))
                                                           (js/console.log @user-confirmation)))))
-
-                                                  :datalog-console.remote/init-config
-                                                  (fn [_msg-conn msg]
-                                                    (reset! remote-config (:data msg)))
 
                                                   :datalog-console.client.response/tx-data
                                                   (fn [_msg-conn msg]
@@ -129,7 +129,7 @@
     (fn []
       [:div {:class "relative text-xs h-full w-full grid grid-cols-4"}
        [:div {:class "flex flex-col border-r pt-2 overflow-hidden col-span-1 "}
-        [:h2 {:class "pl-1 text-xl border-b flex center"} "Schema"]
+        [:h2 {:class "pl-1 text-xl border-b flex center"} "Schema" (str @remote-config)]
         (when @r-db-conn
           [:div {:class "overflow-auto h-full w-full"}
            [c.schema/schema @r-db-conn]])]

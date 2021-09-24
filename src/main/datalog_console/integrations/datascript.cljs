@@ -23,12 +23,12 @@
 
 (defn enable!
   "Takes a [datascript](https://github.com/tonsky/datascript) database connection atom. Adds message handlers for a remote datalog-console process to communicate with. E.g. the datalog-console browser [extension](https://chrome.google.com/webstore/detail/datalog-console/cfgbajnnabfanfdkhpdhndegpmepnlmb?hl=en)."
-  [{db-conn :conn
-    disable-write? :disable-write?
-    secure? :secure?}]
-  (try
-    (js/document.documentElement.setAttribute "__datalog-console-remote-installed__" true)
-    (let [msg-conn (msg/create-conn {:to js/window
+  [{:keys [db-conn disable-write? secure?]}]
+  (try 
+    (let [integration-config (into {:integration-version dc/version
+                                    :secure? secure?}
+                                   (when-not secure? {:disable-write? disable-write?}))
+          msg-conn (msg/create-conn {:to js/window
                                      :routes {:datalog-console.extension/integration-handshake!
                                               (fn [msg-conn msg]
                                                 (let [msg-data (:data msg)]
@@ -39,7 +39,7 @@
                                                     (msg/send {:conn msg-conn
                                                                :type :datalog-console.extension/integration-handshake!
                                                                :data {:init-config {:integration-version dc/version
-                                                                                    :secure? secure?}}})
+                                                                                    :secure? false #_secure?}}})
 
                                                     ;; Send the wrapped AES key
                                                     (:init-key msg-data)
@@ -70,14 +70,6 @@
                                                                        :data {:user-confirmation :failed}})
                                                             (js/alert "Too many attempts made to safely connect Datalog Console to this tab."))))))))
 
-                                              :datalog-console.client/init!
-                                              (fn [msg-conn msg]
-                                                (msg/send {:conn msg-conn
-                                                           :type :datalog-console.remote/init-config
-                                                           :data {:integration-version dc/version
-                                                                  :disable-write? disable-write?
-                                                                  :secure? secure?}}))
-
 
                                               :datalog-console.client/request-whole-database-as-string
                                               (fn [msg-conn _msg]
@@ -100,11 +92,13 @@
                                                                                {:key @aes-key
                                                                                 :algorithm crypto/aes-key-algo})})))))}
                                      :send-fn (fn [{:keys [to conn msg]}]
-                                                (when (or (:confirmed @connection)
-                                                          (= :datalog-console.extension/integration-handshake! (:type msg))
-                                                          (= ::msg/ack (:type msg))
-                                                          (not secure?))
-                                                  (js/console.log "sending from integration: " msg)
+                                                (js/console.log "sending from integration: " secure?)
+                                                (when (or
+                                                       (not secure?)
+                                                       (:confirmed @connection)
+                                                       (= :datalog-console.extension/integration-handshake! (:type msg))
+                                                       (= ::msg/ack (:type msg))
+                                                       (not secure?))
                                                   (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)
                                                                              :conn-id (:id @conn)}))))
                                      :receive-fn (fn [cb msg-conn]
@@ -121,6 +115,12 @@
                                                                                                  :data (:data parsed-msg)}
                                                                                                 #(cb (assoc parsed-msg :data (cljs.reader/read-string %))))
                                                                                 (cb parsed-msg))))))))})]
+      (msg/send {:conn msg-conn
+                 :type :datalog-console.remote/integration-init!
+                 :data integration-config})
+
+      
+
       (d/listen! db-conn (fn [x]
                            (let [tx-data (:tx-data x)]
                              (msg/send {:conn msg-conn
@@ -132,46 +132,3 @@
 
 
     (catch js/Error _e nil)))
-
-
-
-(comment
-
-
-  (def keypair (crypto/generate-key))
-
-  (js/console.log @keypair)
-
-
-  (crypto/encrypt {:key (:public @keypair)
-                   :algorithm crypto/rsa-key-algo
-                   :data "the text I am sending"}
-                  (fn [s]
-                    (js/console.log "s is: " s)
-                    (crypto/decrypt {:key (:private @keypair)
-                                     :algorithm crypto/rsa-key-algo
-                                     :data s}
-                                    (fn [s]
-                                      (js/console.log "decrypt" s)))))
-
-
-
-
-  (js/console.log @aes-key)
-
-
-  (crypto/encrypt {:key @aes-key
-                   :algorithm crypto/aes-key-algo
-                   :data "the text I am sending"}
-                      (fn [s]
-                        (js/console.log "s is: " s)
-                        #_(crypto/decrypt {:key aes-key
-                                         :algorithm crypto/aes-key-algo
-                                         :data s}
-                                        (fn [s]
-                                          (js/console.log "decrypted:" s)))))
-
-
-
-  ;; format blocker
-  )

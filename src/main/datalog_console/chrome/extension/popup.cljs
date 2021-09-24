@@ -2,42 +2,109 @@
   (:require [reagent.dom :as rdom]
             [reagent.core :as r]
             [reagent.ratom]
+            [clojure.core.async :as async :refer [>! <! go chan]]
             [datalog-console.lib.messaging :as msg]
             [goog.object :as gobj]
             [cljs.reader]))
 
-(defonce counter (r/atom 1))
-(defonce status (r/atom {:current-tab nil}))
+(defonce status (r/atom {:current-tab {:id nil 
+                                       :connection false
+                                       :code nil}
+                         :tools-connected nil
+                         :db-tabs nil}))
 
-(defonce conn (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.remote/extension-popup"})
-                                :routes {:datalog-console.background/status-update
-                                         (fn [_conn msg]
-                                           (swap! counter inc)
-                                           (js/console.log "made it to status update: " (:current-tab (:data msg)))
-                                           (swap! status assoc :current-tab (:current-tab (:data msg))))}
-                                :send-fn (fn [{:keys [to msg]}]
-                                           (.postMessage to
-                                                         (clj->js {(str ::msg/msg) (pr-str msg)})))
-                                :receive-fn (fn [cb conn]
-                                              (.addListener (gobj/get (:to @conn) "onMessage")
-                                                            (fn [msg]
-                                                              (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
-                                                                (js/console.log "this is raw msg: " raw-msg)
-                                                                (cb (cljs.reader/read-string raw-msg))))))}))
+(defn get-current-tab [cb]
+  (.query js/chrome.tabs #js {:active true :currentWindow true}
+          (fn [tabs]
+            (let [current-tab (-> (js->clj tabs) first (get "id"))]
+              (cb current-tab)))))
+
+(go
+  (let [tab-id-ch (chan)
+        _ (get-current-tab #(go (>! tab-id-ch %)))
+        tab-id (<! tab-id-ch)]
+    (defonce conn
+      (msg/create-conn {:to (js/chrome.runtime.connect #js {:name ":datalog-console.remote/extension-popup"})
+                        :tab-id tab-id
+                        :routes {:datalog-console.popup/init-response!
+                                 (fn [_conn msg]
+                                   (swap! status (fn [old new] (merge-with into old new)) (:data msg)))
+                                 
+                                 :datalog-console.extension/popup-update!
+                                 (fn [_conn msg]
+                                   (let [msg-data (:data msg)]
+                                     (swap! status conj {:tools-connected (:tools msg-data)
+                                                         :db-tabs (:remote msg-data)})))
+
+                                 :datalog-console.extension/integration-handshake!
+                                 (fn [_conn msg]
+                                   (let [msg-data (:data msg)]
+                                     (cond
+                                       (contains? msg-data :confirmation-code)
+                                       (swap! status (fn [old new] (merge-with into old new))
+                                              {:current-tab {:connection :waiting
+                                                             :code (:confirmation-code (:data msg))}})
+                                       
+                                       (contains? msg-data :user-confirmation)
+                                       (swap! status (fn [old new] (merge-with into old new))
+                                              {:current-tab {:connection true}}))))}
+                        
+
+                        :send-fn (fn [{:keys [tab-id to msg]}]
+                                   (.postMessage to
+                                                 (clj->js {(str ::msg/msg) (pr-str msg)
+                                                           :tab-id tab-id})))
+                        :receive-fn (fn [cb conn]
+                                      (.addListener (gobj/get (:to @conn) "onMessage")
+                                                    (fn [msg]
+                                                      (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
+                                                        (js/console.log "this is raw msg: " raw-msg)
+                                                        (cb (cljs.reader/read-string raw-msg))))))}))
+    (swap! status assoc-in [:current-tab :id] tab-id)
+    (msg/send {:conn conn
+           :type :datalog-console.popup/init!})))
 
 
 
+
+
+(defn console-connections []
+  [:div {:class "px-4 flex flex-col"}
+   [:p {:class "border-b text-xl flex justify-between"}
+    [:span "Tab Id:"]
+    [:b (get-in @status [:current-tab :id])]]
+   (when (:secure? @status)
+     (case (get-in @status [:current-tab :connection])
+       true [:span {:class "text-xl text-gray-300 self-center"} "Connected"]
+       false [:button {:class "mt-4 py-1 px-2 rounded bg-gray-200 border"
+                       :on-click
+                       (fn []
+                         (msg/send {:conn conn
+                                    :type :datalog-console.popup/connect!}))}
+              "Connect"]
+       :waiting [:div {:class "mt-4 p-2 rounded bg-red-200 flex flex-col items-center"}
+                 [:p "Connection confirmation code"]
+                 [:p {:class "text-xl"} (get-in @status [:current-tab :code])]]
+       :failed [:span "failed"]))
+    
+   
+   [:div {:class "mt-8"}
+    [:p {:class "mt-4 border-b flex justify-between"}
+     [:span "Tabs:"]
+     [:b (or (count (:db-tabs @status)) 0)]]
+    [:p {:class "mt-4 border-b flex justify-between"}
+     [:span "Databases:"]
+     [:b (or (:tools-connected @status) 0)]]
+    [:p {:class "mt-4 border-b flex justify-between"}
+     [:span "Tools:"]
+     [:b (or (:tools-connected @status) 0)]]]])
 
 
 
 (defn root []
   (fn []
-    [:div {:class "flex flex-col"}
-     [:span "Current tab id: " [:b (:current-tab @status)]]
-     [:button {:on-click #(msg/send {:conn conn
-                                     :type :datalog-console/init-handshake!})}
-      "Connect"]]))
-
+    [:div {:class "flex flex-col p-8"}
+     [console-connections]]))
 
 (defn mount! []
   (rdom/render [root] (js/document.getElementById "root")))
@@ -51,18 +118,3 @@
   (mount!))
 
 (mount!)
-
-
-
-
-
-;; (defn mount! []
-;;   (rdom/render [root] (js/document.getElementById "root")))
-
-;; (defn init! []
-;;   (mount!))
-
-;; (defn ^:dev/after-load remount!
-;;   "Remounts the whole UI on every save. Def state you want to persist between remounts with defonce."
-;;   []
-;;   (mount!))
