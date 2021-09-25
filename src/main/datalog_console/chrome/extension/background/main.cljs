@@ -26,6 +26,7 @@
 ;; security
 ;;;;;;;;;;;;
 
+(defonce keypair (crypto/generate-key))
 (defonce key-manager (atom {}))
 (defonce integration-configs (atom {}))
 (defonce secured-connections (atom {}))
@@ -37,20 +38,12 @@
 
 (defonce code (random-code))
 
-(defonce keypair (crypto/generate-key))
-
-
 (defn popup-port? [port]
   (= ":datalog-console.remote/extension-popup" (gobj/get port "name")))
 
 (defn get-browser-tab-id [port]
   (gobj/getValueByKeys port "sender" "tab" "id"))
 
-(defn get-current-tab [cb]
-  (.query js/chrome.tabs #js {:active true :currentWindow true}
-          (fn [tabs]
-            (let [current-tab (-> (js->clj tabs) first (get "id"))]
-              (cb current-tab)))))
 
 #_(defn real-time-popup-update [conn port]
   (when (popup-port? port)
@@ -66,10 +59,8 @@
 (defn start-secure-integration-handshake! [tab-id]
   (when-not (or (get-in @integration-configs [tab-id :handshake])
                 (= true (get-in @integration-configs [tab-id :user-confirmation])))
-    (js/console.log "first handshake for: " tab-id)
     (let [get-port (fn [context] (get-in @port-conns [context tab-id]))]
       (swap! integration-configs assoc-in [tab-id :handshake] (chan))
-      (js/console.log (get-in @integration-configs [tab-id :handshake]))
       (go
         (let [handshake-key-ch (get-in @integration-configs [tab-id :handshake])]
           (when (:secure? (get @integration-configs tab-id))
@@ -107,12 +98,6 @@
                                   :type :datalog-console.extension/secure-integration-handshake!
                                   :data {:init-key exported-key}}))))))
 
-(defn handle-user-confirmation [tab-id confirmation]
-  (case confirmation 
-    true (swap! assoc integration-configs [])))
-
-
-
 (js/chrome.runtime.onConnect.addListener
  (fn [port]
    (js/console.log "port connected: " (gobj/get port "name"))
@@ -145,8 +130,6 @@
                                                        (dissoc (get @integration-configs @(:tab-id @conn))
                                                                :handshake))}))
                               
-                              
-
                               :datalog-console.popup/connect!
                               (fn [conn msg]
                                 (start-secure-integration-handshake! @(:tab-id @conn)))
@@ -155,7 +138,7 @@
                               (fn [conn msg]
                                 (let [tab-id @(:tab-id @conn)
                                       msg-data (:data msg)
-                                      handshake-ch (get-in @integration-configs [tab-id :handshake])]
+                                      handshake-key-ch (get-in @integration-configs [tab-id :handshake])]
 
                                   (cond
                                     ;; Receive wrapped AES key from integration
@@ -168,9 +151,10 @@
                                                        :extractable true
                                                        :keyUsages ["encrypt" "decrypt"]}
                                                       (fn [key]
-                                                        (go (>! handshake-ch key))
+                                                        (go (>! handshake-key-ch key))
                                                         (swap! key-manager assoc tab-id key)))
 
+                                    ;; Handle User Confirmation
                                     (contains? msg-data :user-confirmation)
                                     (do
                                       (swap! integration-configs assoc-in [tab-id :user-confirmation] (:user-confirmation msg-data))
@@ -178,13 +162,20 @@
                                       (swap! integration-configs update tab-id dissoc :handshake)
                                       (js/console.log "This is the user confirmation step: " @integration-configs)
 
-                                      (msg/send {:conn (get-in @port-conns [:popup tab-id])
-                                                 :type :datalog-console.extension/secure-integration-handshake!
-                                                 :data {:user-confirmation (:user-confirmation msg-data)}})
+                                      (when-let [popup-conn (get-in @port-conns [:popup tab-id])]
+                                        (js/console.log "this is the popup-conn:" popup-conn)
+                                        (msg/send {:conn popup-conn
+                                                   :type :datalog-console.extension/secure-integration-handshake!
+                                                   :data {:user-confirmation (:user-confirmation msg-data)}}))
                                       ;; Send the user confirmation to the devtool. TODO: Turn into handle-user-confirmation to also send to other tool connections
                                       #_(msg/send {:conn (get-in @port-conns [:tools tab-id])
                                                    :type :datalog-console.extension/secure-integration-handshake!
-                                                   :data {:user-confirmation (:user-confirmation msg-data)}})))))
+                                                   :data {:user-confirmation (:user-confirmation msg-data)}}))
+                                    
+                                    (contains? msg-data :restart-key)
+                                    (do
+                                      (swap! integration-configs assoc @(:tab-id @conn) msg-data)
+                                      (js/console.log @integration-configs)))))
 
                               :* (fn [conn msg]
                                      ;;TODO: handle wildcard when multi variety ports
@@ -219,14 +210,25 @@
                                        (.addListener (gobj/get port "onDisconnect")
                                                      (fn [port]
                                                        (js/console.log "this port disconnected: " (gobj/get port "name"))
+                                                       (js/console.log @port-conns)
                                                        (when-let [msg (gobj/get port "onMessage")]
                                                          (.removeListener msg listener))
                                                        (cond
+                                                         ;; TODO: handle when the page is refreshed and the connection is lost.
+
+                                                         ;; Store the way to verify the message is from background
+                                                         ;; If the public key has come from background. Generate a new AES key, wrap and send back.
+                                                         ;; New secure connection established without user confirmation
+
+
                                                          (get-browser-tab-id port)
-                                                         (swap! port-conns update :remote dissoc conn-tab-id)
+                                                         (swap! port-conns dissoc :remote conn-tab-id)
 
                                                          (popup-port? port)
-                                                         (swap! port-conns update :popup dissoc conn-tab-id)
+                                                         (do
+                                                           (js/console.log "removing the popup form port conns:")
+                                                           (swap! port-conns dissoc :popup conn-tab-id)
+                                                           (js/console.log @port-conns))
 
-                                                         :else
-                                                         (swap! port-conns update :tools dissoc conn-tab-id)))))))})))
+                                                         (gobj/get port ":datalog-console.client/devtool-port")
+                                                         (swap! port-conns dissoc :tools conn-tab-id)))))))})))

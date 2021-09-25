@@ -19,7 +19,7 @@
                                                        (when (and (identical? (.-source event) js/window)
                                                                   (not= (:id @conn) (gobj/getValueByKeys event "data" "conn-id")))
                                                          (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
-                                                           (js/console.log "APP-tab-conn: " raw-msg)
+                                                          ;;  (js/console.log "APP-tab-conn: " raw-msg)
                                                            (cb (cljs.reader/read-string raw-msg)))))))}))
 
 (reset! background-conn
@@ -33,5 +33,5 @@
                                         (.addListener (gobj/get (:to @conn) "onMessage")
                                                       (fn [msg]
                                                         (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
-                                                          (js/console.log "BG-conn: " raw-msg)
+                                                          ;; (js/console.log "BG-conn: " raw-msg)
                                                           (cb (cljs.reader/read-string raw-msg))))))}))

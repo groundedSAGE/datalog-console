@@ -11,7 +11,10 @@
                            :attempts 0
                            :connected-at nil}))
 
+;; TODO: Find a better way to do this?
+;; We do this up front to allow time to generate the keys and have them available in the atoms
 (defonce aes-key (crypto/generate-aes-key))
+(defonce keypair (crypto/generate-key))
 
 
 
@@ -53,7 +56,18 @@
                                                                    :data {:user-confirmation user-confirmation}})
                                                         (cond
                                                           user-confirmation
-                                                          (swap! connection assoc :confirmed true :connected-at (js/Date.))
+                                                          (do
+                                                            ;; TODO: write the public key to indexedDB
+
+                                                            ;; Handle the restart logic.
+                                                            ;; Fetch public key from indexedDB. Generate new AES keys and wrap them in public key. 
+                                                            (crypto/export {:format "jwk"
+                                                                            :key (:private @keypair)}
+                                                                             (fn [exported-key]
+                                                                               (msg/send {:conn msg-conn
+                                                                                          :type :datalog-console.extension/secure-integration-handshake!
+                                                                                          :data {:restart-key exported-key}})))
+                                                            (swap! connection assoc :confirmed true :connected-at (js/Date.)))
 
                                                           (>= (:attempts @connection) 3)
                                                           (do 
@@ -84,7 +98,6 @@
                                                                                {:key @aes-key
                                                                                 :algorithm crypto/aes-key-algo})})))))}
                                      :send-fn (fn [{:keys [to conn msg]}]
-                                                (js/console.log "sending from integration: " secure?)
                                                 (when (or
                                                        (not secure?)
                                                        (= :datalog-console.remote/integration-init! (:type msg))
@@ -101,7 +114,7 @@
                                                                                    (not= (:id @msg-conn) (gobj/getValueByKeys event "data" "conn-id")))
                                                                           (when-let [raw-msg (gobj/getValueByKeys event "data" (str ::msg/msg))]
                                                                             (let [parsed-msg (cljs.reader/read-string raw-msg)]
-                                                                               (js/console.log "this is parsed msg: " parsed-msg)
+                                                                              ;;  (js/console.log "this is parsed msg: " parsed-msg)
                                                                               (if (:encrypted? parsed-msg)
                                                                                 (crypto/decrypt {:key @aes-key
                                                                                                  :algorithm crypto/aes-key-algo
@@ -125,3 +138,6 @@
 
 
     (catch js/Error _e nil)))
+
+
+(js/console.log "secure context: " js/window.isSecureContext)
