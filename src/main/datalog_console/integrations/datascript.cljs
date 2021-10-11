@@ -59,6 +59,8 @@
                                                           (do
                                                             ;; TODO: write the public key to indexedDB
 
+                                                            ;; Handle retries. Currently don't do anything with the retries
+
                                                             ;; Handle the restart logic.
                                                             ;; Fetch public key from indexedDB. Generate new AES keys and wrap them in public key. 
                                                             (crypto/export {:format "jwk"
