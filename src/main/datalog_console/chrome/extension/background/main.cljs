@@ -41,50 +41,33 @@
 (defn popup-port? [port]
   (= ":datalog-console.remote/extension-popup" (gobj/get port "name")))
 
-(def popup-updates
- (let [publish-ch (chan 20)]
-   (async/go-loop []
-     (async/put! publish-ch :test)
-     (<! (async/timeout 500))
-     (recur))
-   {:subscribe (async/mult publish-ch)
-    :publish publish-ch}))
+(defonce popup-updates
+  (let [publish-ch (chan (async/sliding-buffer 1))]
+    (async/go-loop []
+      (async/put! publish-ch {:tools (keys (:tools @port-conns))
+                              :remote (keys (:remote @port-conns))})
+      (<! (async/timeout 250))
+      (recur))
+    (atom
+     {:subscribe (async/mult publish-ch)
+      :publish publish-ch})))
 
 (defn get-browser-tab-id [port]
   (gobj/getValueByKeys port "sender" "tab" "id"))
 
 
 (defn real-time-popup-update [conn]
-  (js/console.log "calling realtime update")
-  (let [update-chan (chan)]
-    (swap! conn assoc :update-chan update-chan)
-    (async/tap (:subscribe popup-updates) update-chan)
+  (let [update-chan (chan (async/sliding-buffer 1))
+        kill-switch (chan)]
+    (swap! conn assoc :kill-switch kill-switch)
+    (async/tap (:subscribe @popup-updates) update-chan)
     (async/go-loop []
-      (js/console.log "update??")
-      (when-let [result (<! update-chan)]
+      (let [[result _] (async/alts! [kill-switch update-chan] :priority true)]
         (when-not (= result :kill)
-          (js/console.log "the result: " result)
-          (recur)))
-      (js/console.log "closing channel")
-      #_(let [[n _] (async/alts! [update-chan (async/timeout 250)] :priority true)]
-          (when-not (= n :kill)
-            (js/console.log "the result of the async alts:" n)
-            (js/console.log "popups: " (:popup @port-conns))
-            (recur)))))
-  #_(async/go-loop []
-      (when (:popup @port-conns)
-        (msg/send {:conn conn
-                   :type :datalog-console.extension/popup-update!
-                   :data {:tools (keys (:tools @port-conns))
-                          :remote (keys (:remote @port-conns))}})
-        (<! (async/timeout 1000))
-        (recur))))
-
-
-#_(msg/send {:conn conn
-             :type :datalog-console.extension/popup-update!
-             :data {:tools (keys (:tools @port-conns))
-                    :remote (keys (:remote @port-conns))}})
+          (msg/send {:conn conn
+                     :type :datalog-console.extension/popup-update!
+                     :data result})
+          (recur))))))
 
 (defn connection-security? [conn]
   (:secure? (get @integration-configs @(:tab-id @conn))))
@@ -153,9 +136,8 @@
                               (fn [conn msg]
                                 (js/console.log "popup init!")
                                 (swap! port-conns assoc-in [:popup @(:tab-id @conn)] conn)
-
                                 (real-time-popup-update conn)
-   
+
                                 ;; (js/console.log "integration configs: " @integration-configs)
                                 ;; (js/console.log "integration configs data: " (get @integration-configs @(:tab-id @conn)))
                                 (msg/send {:conn conn
@@ -304,7 +286,7 @@
 
                                                          (popup-port? port)
                                                          (do
-                                                           (go (>! (:update-chan @conn) :kill))
+                                                           (go (>! (:kill-switch @conn) :kill))
                                                            (swap! port-conns update-in [:popup] dissoc @(:tab-id @conn)))
 
                                                          (gobj/get port ":datalog-console.client/devtool-port")
