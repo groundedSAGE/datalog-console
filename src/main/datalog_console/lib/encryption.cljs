@@ -12,7 +12,7 @@
 
 (defonce aes-key-algo {:name "AES-GCM"
                        :length 256
-                       :iv (js/Uint8Array. 12)})
+                       :iv (js/Uint8Array. 12)}) ;; TODO: check this: https://stackoverflow.com/questions/44726083/wrap-and-unwrap-keys-with-webcrypto-api
 
 
 ;; Utils
@@ -44,17 +44,21 @@
                                             }))))
     key-atom))
 
+(defn generate-key-cb [cb]
+  (-> (.generateKey js/crypto.subtle
+                    (clj->js rsa-key-algo)
+                    true
+                    ["encrypt" "decrypt" "wrapKey" "unwrapKey"])
+      (.then (fn [keys] (cb {:private (.-privateKey keys)
+                             :public (.-publicKey keys)})))))
+
 (defn generate-aes-key []
   (let [key-atom (atom nil)]
     (-> (.generateKey js/crypto.subtle 
                       (clj->js aes-key-algo)
                       true 
                       ["encrypt" "decrypt"])
-        (.then (fn [keys] (reset! key-atom keys
-                                  #_{:public (.-publicKey keys)
-                                            ;; TODO: add the others
-                                            ;; :object keys
-                                     }))))
+        (.then (fn [keys] (reset! key-atom keys))))
     key-atom))
 
 (defn import [{:keys [format keyData algorithm extractable keyUsages]} cb]
@@ -89,7 +93,7 @@
                   wrapAlgo)
       (.then (fn [result]
                (cb result)))
-      (.catch #(js/console.log %))))
+      (.catch #(js/console.log "failed to wrap key: " %))))
 
 (defn unwrapKey [{:keys [format wrappedKey unwrappingKey unwrapAlgo unwrappedKeyAlgo extractable keyUsages]} cb]
   (-> (.unwrapKey js/crypto.subtle
@@ -127,6 +131,28 @@
         (.catch #(js/console.log %)))))
 
 
+(defn encrypt-key [{:keys [algorithm key data]} cb]
+    ;; might want to do encoding outside of this function
+  (-> (.encrypt js/crypto.subtle
+                (clj->js algorithm)
+                key
+                data)
+      (.then (fn [s]
+               (cb (buff->base64 s))))
+      (.catch #(js/console.log %))))
+
+(defn decrypt-key [{:keys [algorithm key data]} cb]
+  ;; might want to do decoding outside of this function
+  (when key
+    (-> (.decrypt js/crypto.subtle
+                  (clj->js algorithm)
+                  key
+                  (base64->buff data))
+        (.then (fn [s]
+                 (cb s)))
+        (.catch #(js/console.log %)))))
+
+
 
 ;; Application specific code
 
@@ -139,7 +165,36 @@
           cb))
 
 (defn key-swap [{:keys [received-key wrap-settings]} cb]
+  (js/console.log "calling key swap!!")
   (import-jwk received-key
    (fn [imported-key]
      (wrapKey (assoc wrap-settings :wrappingKey imported-key)
               #(cb %)))))
+
+
+
+(comment 
+  ;; repl code
+
+  (encode "test")
+  (encode #js {:test "this"})
+
+  (def keypair (generate-key))
+  (def aes-key (generate-aes-key))
+
+  (js/console.log @aes-key)
+
+  (js/console.log (:private @keypair))
+
+  (js/console.log (:private @keypair))
+ 
+
+  (encrypt {:key @aes-key
+            :data (:private @keypair)
+            :algorithm aes-key-algo}
+           (fn [result] (js/console.log "the result: " result)))
+
+
+  
+  ;;
+  )

@@ -5,6 +5,8 @@
         org.clojure/core.async {:mvn/version "1.3.618"}
         nano-id/nano-id {:mvn/version "1.0.0"}
         org.clojure/data.xml {:mvn/version "0.0.8"}
+        io.replikativ/konserve {:git/url "https://github.com/replikativ/konserve"
+                                :sha "30e491fea8fde755105e340d3732648dae6fe93a"}
         io.homebase/homebase-react {:git/url "https://github.com/homebaseio/homebase-react.git"
                                     :sha "370f5b5092c6abd293aee0ea88a600eba2ce33de"} #_{:mvn/version "0.1.1"}}
  

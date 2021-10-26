@@ -141,12 +141,14 @@
            [c.entities/entities @r-db-conn entity-lookup-ratom]])]
        [tabs r-db-conn entity-lookup-ratom]
        [:div {:class "absolute top-2 right-1 flex items-center"}
+        [:p (str "result " (pr-str @user-confirmation))]
         [:p {:class "px-2"}
-         [:b
+         (str "Auth code: " (:code @user-confirmation))
+         #_[:b
           (if (and (:status @user-confirmation) (not= :failed (:status @user-confirmation)))
             (:code @user-confirmation)
             "Failed to connect")]]
-        (when-not (= :failed (:status @user-confirmation))
+        #_(when-not (= :failed (:status @user-confirmation))
           (if-not (:status @user-confirmation)
             [:button
              {:class "py-1 px-2 rounded bg-gray-200 border"

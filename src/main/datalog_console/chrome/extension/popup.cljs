@@ -42,7 +42,6 @@
                                        (contains? msg-data :confirmation-code)
                                        (swap! status conj msg-data)
 
-
                                        (contains? msg-data :user-confirmation)
                                        (swap! status conj msg-data))))}
                         
@@ -67,7 +66,7 @@
 
 (defn console-connections []
   [:div {:class "px-4 flex flex-col"}
-   #_[:p (str @status)]
+   [:p (str @status)]
    [:p {:class "border-b text-xl flex justify-between"}
     [:span "Tab Id:"]
     [:b (:current-tab-id @status)]]

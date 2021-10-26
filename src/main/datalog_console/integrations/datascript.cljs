@@ -4,7 +4,12 @@
             [datascript.core :as d]
             [datalog-console.lib.version :as dc]
             [datalog-console.lib.encryption :as crypto]
-            [datalog-console.lib.messaging :as msg]))
+            [datalog-console.lib.messaging :as msg]
+            [clojure.core.async :as async :refer [>! <! go chan]]
+            ;; Currently using konserve for iteration speed. Removing dependency on core.async preferable?
+            ;; Otherwise we go all in with core.async and leverage the core.async promise API provided for removing web crypto callbacks.
+            [konserve.indexeddb :refer [new-indexeddb-store]]
+            [konserve.core :as k]))
 
 ;; Security
 (defonce connection (atom {:confirmed false
@@ -14,7 +19,7 @@
 ;; TODO: Find a better way to do this?
 ;; We do this up front to allow time to generate the keys and have them available in the atoms
 (defonce aes-key (crypto/generate-aes-key))
-(defonce keypair (crypto/generate-key))
+(defonce key-manager (atom {}))
 
 
 
@@ -27,7 +32,7 @@
 (defn enable!
   "Takes a [datascript](https://github.com/tonsky/datascript) database connection atom. Adds message handlers for a remote datalog-console process to communicate with. E.g. the datalog-console browser [extension](https://chrome.google.com/webstore/detail/datalog-console/cfgbajnnabfanfdkhpdhndegpmepnlmb?hl=en)."
   [{:keys [db-conn disable-write? secure?]}]
-  (try 
+  (try
     (let [integration-config (into {:integration-version dc/version
                                     :secure? secure?}
                                    (when-not secure? {:disable-write? disable-write?}))
@@ -38,13 +43,15 @@
                                                   (cond
                                                     ;; Send the wrapped AES key
                                                     (:init-key msg-data)
-                                                    (crypto/key-swap {:received-key (:init-key msg-data)
-                                                                      :wrap-settings {:format "jwk"
-                                                                                      :key @aes-key
-                                                                                      :wrapAlgo (clj->js crypto/rsa-key-algo)}}
-                                                                     #(msg/send {:conn msg-conn
-                                                                                 :type :datalog-console.extension/secure-integration-handshake!
-                                                                                 :data {:wrapped-key (crypto/buff->base64 %)}}))
+                                                    (do
+                                                      (swap! connection assoc :extension-init-key (:init-key msg-data))
+                                                      (crypto/key-swap {:received-key (:init-key msg-data)
+                                                                        :wrap-settings {:format "jwk"
+                                                                                        :key @aes-key
+                                                                                        :wrapAlgo (clj->js crypto/rsa-key-algo)}}
+                                                                       #(msg/send {:conn msg-conn
+                                                                                   :type :datalog-console.extension/secure-integration-handshake!
+                                                                                   :data {:wrapped-key (crypto/buff->base64 %)}})))
 
                                                     ;; User confirmation for secure connection
                                                     (:confirmation-code msg-data)
@@ -57,22 +64,13 @@
                                                         (cond
                                                           user-confirmation
                                                           (do
-                                                            ;; TODO: write the public key to indexedDB
-
-                                                            ;; Handle retries. Currently don't do anything with the retries
-
-                                                            ;; Handle the restart logic.
-                                                            ;; Fetch public key from indexedDB. Generate new AES keys and wrap them in public key. 
-                                                            (crypto/export {:format "jwk"
-                                                                            :key (:private @keypair)}
-                                                                             (fn [exported-key]
-                                                                               (msg/send {:conn msg-conn
-                                                                                          :type :datalog-console.extension/secure-integration-handshake!
-                                                                                          :data {:restart-key exported-key}})))
+                                                            (go
+                                                              (let [idb (<! (new-indexeddb-store "datalog-console-integration"))]
+                                                                (<! (k/assoc-in idb ["extension-key"] (pr-str @connection)))))
                                                             (swap! connection assoc :confirmed true :connected-at (js/Date.)))
 
                                                           (>= (:attempts @connection) 3)
-                                                          (do 
+                                                          (do
                                                             (msg/send {:conn msg-conn
                                                                        :type :datalog-console.extension/secure-integration-handshake!
                                                                        :data {:user-confirmation :failed}})
@@ -126,8 +124,25 @@
       (msg/send {:conn msg-conn
                  :type :datalog-console.remote/integration-init!
                  :data integration-config})
-
       
+
+      ;; Establish secure connection after tab refresh
+      (when secure?
+        (go
+          (let [idb (<! (new-indexeddb-store "datalog-console-integration"))]
+            (when-let [connection-data (<! (k/get-in idb ["extension-key"]))]
+              ;; (js/console.log "re-establishing connection" (cljs.reader/read-string public-key))
+              (reset! connection (cljs.reader/read-string connection-data))
+              (js/console.log "established connection: " @connection)
+              (crypto/key-swap {:received-key (:extension-init-key @connection)
+                                :wrap-settings {:format "jwk"
+                                                :key @aes-key
+                                                :wrapAlgo (clj->js crypto/rsa-key-algo)}}
+                               #(msg/send {:conn msg-conn
+                                           :type :datalog-console.extension/secure-integration-handshake!
+                                           :data {:refreshed-key (crypto/buff->base64 %)}}))))))
+
+
 
       (d/listen! db-conn (fn [x]
                            (let [tx-data (:tx-data x)]
@@ -143,3 +158,29 @@
 
 
 (js/console.log "secure context: " js/window.isSecureContext)
+
+(comment
+  ;; repl code 
+
+  (println "hello")
+
+  (go (def my-db (<! (new-indexeddb-store "konserve"))))
+
+  (js/console.log my-db)
+
+  (go (println "get:" (<! (k/get-in my-db ["test" :a]))))
+
+  (go (doseq [i (range 10)] (<! (k/assoc-in my-db [i] i))))
+
+  (go (doseq [i (range 10)] (println (<! (k/get-in my-db [i])))))
+
+  (go (println (<! (k/assoc-in my-db ["test"] {:a 1 :b 4.2}))))
+
+  (go (println (<! (k/update-in my-db ["test" :a] inc))))
+
+   (go (println "get:" (<! (k/get-in my-db ["test"]))))
+
+
+  
+  ;; format blocker
+  )

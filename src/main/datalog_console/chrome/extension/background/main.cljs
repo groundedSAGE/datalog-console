@@ -41,54 +41,85 @@
 (defn popup-port? [port]
   (= ":datalog-console.remote/extension-popup" (gobj/get port "name")))
 
+(def popup-updates
+ (let [publish-ch (chan 20)]
+   (async/go-loop []
+     (async/put! publish-ch :test)
+     (<! (async/timeout 500))
+     (recur))
+   {:subscribe (async/mult publish-ch)
+    :publish publish-ch}))
+
 (defn get-browser-tab-id [port]
   (gobj/getValueByKeys port "sender" "tab" "id"))
 
 
-#_(defn real-time-popup-update [conn port]
-  (when (popup-port? port)
+(defn real-time-popup-update [conn]
+  (js/console.log "calling realtime update")
+  (let [update-chan (chan)]
+    (swap! conn assoc :update-chan update-chan)
+    (async/tap (:subscribe popup-updates) update-chan)
     (async/go-loop []
+      (js/console.log "update??")
+      (when-let [result (<! update-chan)]
+        (when-not (= result :kill)
+          (js/console.log "the result: " result)
+          (recur)))
+      (js/console.log "closing channel")
+      #_(let [[n _] (async/alts! [update-chan (async/timeout 250)] :priority true)]
+          (when-not (= n :kill)
+            (js/console.log "the result of the async alts:" n)
+            (js/console.log "popups: " (:popup @port-conns))
+            (recur)))))
+  #_(async/go-loop []
       (when (:popup @port-conns)
         (msg/send {:conn conn
                    :type :datalog-console.extension/popup-update!
                    :data {:tools (keys (:tools @port-conns))
-                          :remote (keys (:remote @port-conns))}}))
-      (<! (async/timeout 250))
-      (recur))))
+                          :remote (keys (:remote @port-conns))}})
+        (<! (async/timeout 1000))
+        (recur))))
+
+
+#_(msg/send {:conn conn
+             :type :datalog-console.extension/popup-update!
+             :data {:tools (keys (:tools @port-conns))
+                    :remote (keys (:remote @port-conns))}})
+
+(defn connection-security? [conn]
+  (:secure? (get @integration-configs @(:tab-id @conn))))
 
 (defn start-secure-integration-handshake! [tab-id]
   (when-not (or (get-in @integration-configs [tab-id :handshake])
                 (= true (get-in @integration-configs [tab-id :user-confirmation])))
-    (let [get-port (fn [context] (get-in @port-conns [context tab-id]))]
-      (swap! integration-configs assoc-in [tab-id :handshake] (chan))
+    (let [get-port (fn [context] (get-in @port-conns [context tab-id]))
+          handshake-key-ch (chan)]
+      (swap! integration-configs update-in [tab-id] conj {:handshake handshake-key-ch
+                                                          :user-confirmation :waiting
+                                                          :confirmation-code code})
+
+
+      ;; Send confirmation code to devtool
+      (when-let [tools-conn (get-port :tools)]
+        (msg/send {:conn tools-conn
+                   :type :datalog-console.extension/secure-integration-handshake!
+                   :data {:confirmation-code code
+                          :user-confirmation :waiting}}))
+
+      ;; Send confirmation code to popup
+      (when-let [popup-conn (get-port :popup)]
+        (msg/send {:conn popup-conn
+                   :type :datalog-console.extension/secure-integration-handshake!
+                   :data {:confirmation-code code
+                          :user-confirmation :waiting}}))
+
       (go
-        (let [handshake-key-ch (get-in @integration-configs [tab-id :handshake])]
-          (when (:secure? (get @integration-configs tab-id))
-            
-            (swap! integration-configs assoc-in [tab-id :user-confirmation] :waiting)
-            (swap! integration-configs assoc-in [tab-id :confirmation-code] code)
-            
-
-          ;; Send confirmation code to devtool
-            (when-let [tools-conn (get-port :tools)]
-              (msg/send {:conn tools-conn
-                         :type :datalog-console.extension/secure-integration-handshake!
-                         :data {:confirmation-code code
-                                :user-confirmation :waiting}}))
-
-           ;; Send confirmation code to popup
-            (when-let [popup-conn (get-port :popup)]
-              (msg/send {:conn popup-conn
-                         :type :datalog-console.extension/secure-integration-handshake!
-                         :data {:confirmation-code code
-                                :user-confirmation :waiting}}))
-
-          ;; Send confirmation code to application
-            (msg/send {:conn (get-port :remote)
-                       :type :datalog-console.extension/secure-integration-handshake!
-                       :data {:confirmation-code code}
-                       :encryption {:key (<! handshake-key-ch)
-                                    :algorithm crypto/aes-key-algo}}))))
+        ;; Send confirmation code to application
+        (msg/send {:conn (get-port :remote)
+                   :type :datalog-console.extension/secure-integration-handshake!
+                   :data {:confirmation-code code}
+                   :encryption {:key (<! handshake-key-ch)
+                                :algorithm crypto/aes-key-algo}}))
 
     ;; Start connection handshake
       (crypto/export {:format "jwk"
@@ -100,11 +131,11 @@
 
 (js/chrome.runtime.onConnect.addListener
  (fn [port]
-   (js/console.log "port connected: " (gobj/get port "name"))
+  ;;  (js/console.log "port connected: " (gobj/get port "name"))
    (msg/create-conn {:to port
                      :encryption (atom nil)
                      :send-fn (fn [{:keys [to msg]}]
-                                (js/console.log "sending to: " (gobj/get to "name") msg)
+                                ;; (js/console.log "sending to: " (gobj/get to "name") msg)
                                 (.postMessage to (clj->js {(str ::msg/msg) (pr-str msg)})))
                      :tab-id (atom (or nil (get-browser-tab-id port)))
                      :routes {:datalog-console.remote/integration-init!
@@ -115,14 +146,18 @@
                               :datalog-console.client/init!
                               (fn [conn msg]
                                 (swap! port-conns assoc-in [:tools @(:tab-id @conn)] conn)
-                                (let [secure? (:secure? (get @integration-configs @(:tab-id @conn)))]
-                                  (when secure? (start-secure-integration-handshake! @(:tab-id @conn)))))
+                                (when (connection-security? conn)
+                                  (start-secure-integration-handshake! @(:tab-id @conn))))
 
                               :datalog-console.popup/init!
                               (fn [conn msg]
+                                (js/console.log "popup init!")
                                 (swap! port-conns assoc-in [:popup @(:tab-id @conn)] conn)
-                                (js/console.log "integration configs: " @integration-configs)
-                                (js/console.log "integration configs data: " (get @integration-configs @(:tab-id @conn)))
+
+                                (real-time-popup-update conn)
+   
+                                ;; (js/console.log "integration configs: " @integration-configs)
+                                ;; (js/console.log "integration configs data: " (get @integration-configs @(:tab-id @conn)))
                                 (msg/send {:conn conn
                                            :type :datalog-console.popup/init-response!
                                            :data (into {:tools (keys (:tools @port-conns))
@@ -132,15 +167,31 @@
                               
                               :datalog-console.popup/connect!
                               (fn [conn msg]
-                                (start-secure-integration-handshake! @(:tab-id @conn)))
+                                (when (connection-security? conn)
+                                  (start-secure-integration-handshake! @(:tab-id @conn))))
 
                               :datalog-console.extension/secure-integration-handshake!
                               (fn [conn msg]
                                 (let [tab-id @(:tab-id @conn)
                                       msg-data (:data msg)
                                       handshake-key-ch (get-in @integration-configs [tab-id :handshake])]
+                                  (js/console.log "the message for secure handshake! " msg)
 
                                   (cond
+
+                                    ;; Handle new wrapped AES key from a tab refresh
+                                    (:refreshed-key msg-data)
+                                    (crypto/unwrapKey {:format "jwk"
+                                                       :wrappedKey (crypto/base64->buff (:refreshed-key msg-data))
+                                                       :unwrappingKey (:private @keypair)
+                                                       :unwrapAlgo (clj->js crypto/rsa-key-algo)
+                                                       :unwrappedKeyAlgo (clj->js crypto/aes-key-algo)
+                                                       :extractable true
+                                                       :keyUsages ["encrypt" "decrypt"]}
+                                                      (fn [key]
+                                                        (js/console.log "refreshed key received:")
+                                                        (swap! key-manager assoc-in [tab-id :symmetric] {:key key
+                                                                                                         :received (js/Date.)})))
                                     ;; Receive wrapped AES key from integration
                                     (:wrapped-key msg-data)
                                     (crypto/unwrapKey {:format "jwk"
@@ -152,7 +203,8 @@
                                                        :keyUsages ["encrypt" "decrypt"]}
                                                       (fn [key]
                                                         (go (>! handshake-key-ch key))
-                                                        (swap! key-manager assoc tab-id key)))
+                                                        (swap! key-manager assoc-in [tab-id :symmetric] {:key key
+                                                                                                         :received (js/Date.)})))
 
                                     ;; Handle User Confirmation
                                     (contains? msg-data :user-confirmation)
@@ -162,8 +214,30 @@
                                       (swap! integration-configs update tab-id dissoc :handshake)
                                       (js/console.log "This is the user confirmation step: " @integration-configs)
 
+                                      (js/console.log "this is the user confirmation: " (:user-confirmation msg-data))
+
+                                      ;; Not necessary. Can just store initial public key..
+                                      #_(when (:user-confirmation msg-data)
+                                          (crypto/generate-key-cb (fn [keypair]
+                                                                    (swap! key-manager assoc-in [tab-id :asymmetric] {:keypair keypair
+                                                                                                                      :created (js/Date.)})
+                                                                    (crypto/export {:format "jwk"
+                                                                                    :key (:public keypair)}
+                                                                                   (fn [exported-key]
+                                                                                     (crypto/encrypt {:key (get-in @key-manager [tab-id :symmetric :key])
+                                                                                                      :data (pr-str exported-key)
+                                                                                                      :algorithm crypto/aes-key-algo}
+                                                                                                     (fn [encrypted-]
+                                                                                                       (msg/send {:conn msg-conn
+                                                                                                                  :type :datalog-console.extension/secure-integration-handshake!
+                                                                                                                  :data {:restart-key encrypted-priv-key}})))))
+                                                                    (msg/send {:conn conn
+                                                                               :type :datalog-console.extension/secure-integration-handshake!
+                                                                               :data {:refresh-key "(:public keys)"}}))))
+
+
                                       (when-let [popup-conn (get-in @port-conns [:popup tab-id])]
-                                        (js/console.log "this is the popup-conn:" popup-conn)
+                                        ;; (js/console.log "this is the popup-conn:" popup-conn)
                                         (msg/send {:conn popup-conn
                                                    :type :datalog-console.extension/secure-integration-handshake!
                                                    :data {:user-confirmation (:user-confirmation msg-data)}}))
@@ -171,17 +245,22 @@
                                       #_(msg/send {:conn (get-in @port-conns [:tools tab-id])
                                                    :type :datalog-console.extension/secure-integration-handshake!
                                                    :data {:user-confirmation (:user-confirmation msg-data)}}))
-                                    
+
                                     (contains? msg-data :restart-key)
                                     (do
                                       (swap! integration-configs assoc @(:tab-id @conn) msg-data)
-                                      (js/console.log @integration-configs)))))
+                                      (crypto/decrypt
+                                       {:key (get-in @key-manager [tab-id :symmetric :key])
+                                        :data (:restart-key msg-data)
+                                        :algorithm crypto/aes-key-algo}
+                                       (fn [encrypted-key-str]
+                                         (cljs.reader/read-string encrypted-key-str)))))))
 
                               :* (fn [conn msg]
                                      ;;TODO: handle wildcard when multi variety ports
                                    
                                    (when-not (popup-port? port)
-                                     (js/console.log "this is the port before the env context" port)
+                                    ;;  (js/console.log "this is the port before the env context" port)
                                      
                                      (let [env-context (case (gobj/get port "name")
                                                          ":datalog-console.remote/content-script-port" :tools
@@ -190,7 +269,6 @@
                                        ((msg/forward to) conn msg))))}
 
                      :receive-fn (fn [cb conn]
-                                   #_(real-time-popup-update conn port)
                                    (let [conn-tab-id @(:tab-id @conn)]
                                      (when-let [tab-id (get-browser-tab-id port)]
                                        (swap! port-conns assoc-in [:remote tab-id] conn))
@@ -199,7 +277,7 @@
                                                         (reset! (:tab-id @conn) msg-tab-id))
                                                       (let [raw-msg (gobj/get message (str ::msg/msg))
                                                             parsed-msg (cljs.reader/read-string raw-msg)]
-                                                        (js/console.log "receive msg: " (:type parsed-msg))
+                                                        #_(js/console.log "receive msg: " (:type parsed-msg))
                                                         (if (:encrypted? parsed-msg)
                                                           (crypto/decrypt {:key (get @key-manager conn-tab-id)
                                                                            :algorithm crypto/aes-key-algo
@@ -209,8 +287,8 @@
                                        (.addListener (gobj/get port "onMessage") listener)
                                        (.addListener (gobj/get port "onDisconnect")
                                                      (fn [port]
-                                                       (js/console.log "this port disconnected: " (gobj/get port "name"))
-                                                       (js/console.log @port-conns)
+                                                      ;;  (js/console.log "this port disconnected: " (gobj/get port "name"))
+                                                      ;;  (js/console.log @port-conns)
                                                        (when-let [msg (gobj/get port "onMessage")]
                                                          (.removeListener msg listener))
                                                        (cond
@@ -222,13 +300,15 @@
 
 
                                                          (get-browser-tab-id port)
-                                                         (swap! port-conns dissoc :remote conn-tab-id)
+                                                         (swap! port-conns update-in [:remote] dissoc @(:tab-id @conn))
 
                                                          (popup-port? port)
                                                          (do
-                                                           (js/console.log "removing the popup form port conns:")
-                                                           (swap! port-conns dissoc :popup conn-tab-id)
-                                                           (js/console.log @port-conns))
+                                                           (go (>! (:update-chan @conn) :kill))
+                                                           (swap! port-conns update-in [:popup] dissoc @(:tab-id @conn)))
 
                                                          (gobj/get port ":datalog-console.client/devtool-port")
                                                          (swap! port-conns dissoc :tools conn-tab-id)))))))})))
+
+
+
