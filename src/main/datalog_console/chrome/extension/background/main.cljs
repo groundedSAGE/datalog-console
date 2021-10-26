@@ -50,7 +50,7 @@
         updating? (atom false)]
     (add-watch port-conns :popup-watcher (fn [& args]
                                            (if (seq (:popup (last args)))
-                                             (do
+                                             (when-not (= @updating? true)
                                                (async/go-loop []
                                                  (let [[result _] (async/alts! [kill-switch (async/timeout 250)] :priority true)]
                                                    (when-not (= result :kill)
@@ -58,7 +58,9 @@
                                                                              :remote (keys (:remote @port-conns))})
                                                      (recur))))
                                                (reset! updating? true))
-                                             (when @updating? (go (>! kill-switch :kill))))))
+                                             (do
+                                               (when @updating? (go (>! kill-switch :kill)))
+                                               (reset! updating? false)))))
     (atom
      {:subscribe (async/mult publish-ch)
       :publish publish-ch})))
