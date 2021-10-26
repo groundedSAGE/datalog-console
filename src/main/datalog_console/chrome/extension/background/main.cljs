@@ -41,20 +41,27 @@
 (defn popup-port? [port]
   (= ":datalog-console.remote/extension-popup" (gobj/get port "name")))
 
-(defonce popup-updates
-  (let [publish-ch (chan (async/sliding-buffer 1))]
-    (async/go-loop []
-      (async/put! publish-ch {:tools (keys (:tools @port-conns))
-                              :remote (keys (:remote @port-conns))})
-      (<! (async/timeout 250))
-      (recur))
-    (atom
-     {:subscribe (async/mult publish-ch)
-      :publish publish-ch})))
-
 (defn get-browser-tab-id [port]
   (gobj/getValueByKeys port "sender" "tab" "id"))
 
+(defonce popup-updates
+  (let [publish-ch (chan (async/sliding-buffer 1))
+        kill-switch (chan)
+        updating? (atom false)]
+    (add-watch port-conns :popup-watcher (fn [& args]
+                                           (if (seq (:popup (last args)))
+                                             (do
+                                               (async/go-loop []
+                                                 (let [[result _] (async/alts! [kill-switch (async/timeout 250)] :priority true)]
+                                                   (when-not (= result :kill)
+                                                     (async/put! publish-ch {:tools (keys (:tools @port-conns))
+                                                                             :remote (keys (:remote @port-conns))})
+                                                     (recur))))
+                                               (reset! updating? true))
+                                             (when @updating? (go (>! kill-switch :kill))))))
+    (atom
+     {:subscribe (async/mult publish-ch)
+      :publish publish-ch})))
 
 (defn real-time-popup-update [conn]
   (let [update-chan (chan (async/sliding-buffer 1))
