@@ -1,8 +1,16 @@
 (ns datalog-console.chrome.extension.content-script.main
   {:no-doc true}
   (:require [goog.object :as gobj]
+            [reagent.dom :as rdom]
+            [reagent.core :as r]
+            [clojure.core.async :as async :refer [>! <! go chan]]
             [cljs.reader]
-            [datalog-console.lib.messaging :as msg]))
+            [datalog-console.lib.messaging :as msg]
+            [konserve.indexeddb :refer [new-indexeddb-store]]
+            [konserve.core :as k]))
+
+
+
 
 (def background-conn (atom nil))
 
@@ -35,3 +43,46 @@
                                                         (when-let [raw-msg (gobj/get msg (str ::msg/msg))]
                                                           ;; (js/console.log "BG-conn: " raw-msg)
                                                           (cb (cljs.reader/read-string raw-msg))))))}))
+
+
+
+
+
+;; Manipulate the DOM
+(defn root []
+  (fn []
+    [:div {:class "flex w-screen h-100 bg-red-400 p-8"}
+     [:h1 "Welcome to Datalog Console"]]))
+
+
+
+
+;; Create DOM element
+(when-not (.getElementById js/document "test-id")
+  (let [elem (.createElement js/document "div")]
+    (set! (.. elem -id) "test-id")
+    (.insertBefore js/document.body elem js/document.body.firstChild)))
+
+
+(go (def my-db (<! (new-indexeddb-store "rawr"))))
+(js/console.log "the db: " my-db)
+
+
+
+;; (go (println (<! (k/assoc-in my-db ["test"] {:a 1 :b 4.2}))))
+;; (go (println "get:" (<! (k/get-in my-db ["test" :a]))))
+
+
+
+(defn mount! []
+  (rdom/render [root] (js/document.getElementById "test-id")))
+
+(defn init! []
+  (mount!))
+
+(defn ^:dev/after-load remount!
+  "Remounts the whole UI on every save. Def state you want to persist between remounts with defonce."
+  []
+  (mount!))
+
+(mount!)
