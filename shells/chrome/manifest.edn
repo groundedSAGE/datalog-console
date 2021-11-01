@@ -15,7 +15,7 @@
                             {:chrome/options {:persistent false}
                              :entries        [datalog-console.chrome.extension.background.main]}}
 
- :permissions             ["file:///*" "http://*/*" "https://*/*" "storage" "activeTab" "tabs"]
+ :permissions             ["file:///*" "http://*/*" "https://*/*" "storage"]
  :externally-connectable  {:ids ["*"]}
  :content-security-policy ["default-src 'self';"
                            "script-src 'self' 'unsafe-eval' http://localhost:9610;"
@@ -25,6 +25,7 @@
                            "frame-src 'self' data: chrome-extension-resource:;"
                            "font-src 'self' data: chrome-extension-resource:;"
                            "media-src * data: blob: filesystem:;"]
+ :web-accessible-resources ["images/default/icon-16.png" #_"manifest.json"]
  :browser-action          {:default-icon  {"16"  "images/default/icon-16.png"
                                            "32"  "images/default/icon-32.png"
                                            "48"  "images/default/icon-48.png"

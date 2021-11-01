@@ -21,6 +21,16 @@
 (defonce aes-key (crypto/generate-aes-key))
 (defonce key-manager (atom {}))
 
+(defn detect-extension []
+  (let [elem (js/document.createElement "img" #_"script")]
+    (set! (.-onload elem) (fn [] (js/console.log "SUCCESS")))
+    (set! (.-onerror elem) (fn [] (js/console.log "FAILEd")))
+    (set! (.-src elem) "chrome-extension://holckdbbppfgnecfchicpdknnoknegah/images/default/icon-16.png")
+    (js/document.body.appendChild elem)))
+
+
+
+
 
 
 (defn transact-from-devtool! [db-conn transact-str]
@@ -40,6 +50,7 @@
           msg-conn (msg/create-conn {:to js/window
                                      :routes {:datalog-console.extension/secure-integration-handshake!
                                               (fn [msg-conn msg]
+                                                (detect-extension)
                                                 (let [msg-data (:data msg)]
                                                   (cond
                                                     ;; Send the wrapped AES key
