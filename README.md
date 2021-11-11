@@ -134,3 +134,8 @@ The first one you only have access to via postMessage to the window. You also ge
 (Fig: 2) - To view the background page go to `about:debugging#/runtime/this-firefox` and click here:
 
 ![Datalog Firefox Extension background page](docs/firefox-extension.png)
+
+## Security
+
+![Extension intialisation](docs/extension-initialisation.png)
+![Secure handshake diagram](docs/secure-handshake.png)
